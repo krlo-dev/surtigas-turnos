@@ -33,6 +33,7 @@ export default async function PaginaApoyos({ searchParams }: { searchParams: Pro
     return { o, uso: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0, abierta: vals.length > 0 };
   });
   const zonas = [...new Set(ctx.oficinas.map((o) => o.zona))];
+  const sobrecargadas = usos.filter((u) => u.abierta && u.uso > 1);
 
   return (
     <main className="principal">
@@ -50,7 +51,18 @@ export default async function PaginaApoyos({ searchParams }: { searchParams: Pro
 
       <section className="seccion">
         <h2 className="titulo-seccion" style={{ marginBottom: 6 }}>Sugerencias del motor{vista === "semana" && proxima ? ` · semana del ${fmtRangoFechas(lunes, sumarDias(lunes, 6))}` : ""}</h2>
-        {sugerencias.length === 0 && <p className="muted" style={{ padding: "14px 0" }}>Ninguna oficina necesita apoyo {vista === "hoy" ? "en lo que queda del día" : `en ${textoSemana}`}.</p>}
+        {sugerencias.length === 0 &&
+          (sobrecargadas.length > 0 ? (
+            <div className="aviso alerta" style={{ margin: "14px 0" }}>
+              <span>
+                <b>{sobrecargadas.length} {sobrecargadas.length === 1 ? "oficina está sobrecargada" : "oficinas están sobrecargadas"}</b>{" "}
+                {vista === "hoy" ? "hoy" : `en ${textoSemana}`}, pero ninguna tiene gente de sobra para prestar (todas están por encima del 60% de uso).
+                Mover a alguien solo pasaría la fila de una oficina a otra. Hace falta más personal en turno: revisa la propuesta del motor o agrega turnos a mano.
+              </span>
+            </div>
+          ) : (
+            <p className="muted" style={{ padding: "14px 0" }}>Ninguna oficina necesita apoyo {vista === "hoy" ? "en lo que queda del día" : `en ${textoSemana}`}.</p>
+          ))}
         <div className="lista-filas" style={{ marginTop: 8 }}>
           {sugerencias.map((s) => (
             <div key={`${s.usuarioId}-${s.fecha}-${s.inicio}`} className="fila" style={{ padding: "18px 0", flexWrap: "wrap" }}>
