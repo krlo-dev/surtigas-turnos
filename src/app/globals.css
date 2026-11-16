@@ -77,11 +77,9 @@ button {
 
 /* ----------------------------------------------------------------- hoja */
 .hoja {
-  margin: 18px;
-  min-height: calc(100vh - 36px);
+  margin: 0;
+  min-height: 100vh;
   background: var(--paper);
-  border-radius: 28px;
-  box-shadow: var(--sombra-hoja);
   display: grid;
   grid-template-columns: 236px minmax(0, 1fr);
   overflow: clip;
@@ -93,6 +91,10 @@ button {
 .lateral {
   border-right: 1px solid var(--line);
   padding: 30px 18px 20px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1805,14 +1807,12 @@ button {
 
 /* ----------------------------------------------------------------- acceso */
 .acceso {
-  margin: 18px;
-  min-height: calc(100vh - 36px);
+  margin: 0;
+  min-height: 100vh;
   background: #fff;
-  border-radius: 28px;
-  box-shadow: var(--sombra-hoja);
   display: grid;
   grid-template-columns: 1fr 1fr;
-  padding: 14px;
+  padding: 16px;
 }
 .acceso .lado {
   padding: 30px 46px 16px;
@@ -1828,7 +1828,7 @@ button {
 .acceso .arte {
   border-radius: 22px;
   background: #1a4f84 url("/login-arte.jpg") center / cover no-repeat;
-  min-height: 600px;
+  min-height: calc(100vh - 32px);
 }
 .medidor {
   display: grid;
@@ -1989,6 +1989,10 @@ button {
   }
   .acceso .lado {
     padding: 28px 22px;
+  }
+  .lateral {
+    position: static;
+    height: auto;
   }
   .tabla-scroll {
     overflow-x: auto;

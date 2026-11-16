@@ -59,7 +59,7 @@ npm run dev                 # http://localhost:3000
 npm test                    # pruebas del motor y del importador
 ```
 
-Sin `RESEND_API_KEY` los correos no salen: se escriben en la consola y quedan en la pantalla Correos. Sin `BLOB_READ_WRITE_TOKEN` los soportes se guardan en la carpeta `.soportes/`.
+Sin `RESEND_API_KEY` los correos no salen: se escriben en la consola y quedan en la pantalla Correos. Sin Blob configurado, en local los soportes se guardan en la carpeta `.soportes/`.
 
 ### Cuentas de demostración
 
@@ -75,7 +75,7 @@ En el login, “ver como colaborador / administradora” llena estos datos. Pon 
 1. Sube el proyecto a un repositorio de GitHub e impórtalo en Vercel (framework Next.js, sin cambios en los comandos: Vercel usa el script `vercel-build`, que aplica las migraciones antes de compilar).
 2. En el proyecto de Vercel, pestaña **Storage**:
    - Crea o conecta una base **Neon**. La integración agrega `DATABASE_URL` y `DATABASE_URL_UNPOOLED`.
-   - Crea un **Blob store**. Agrega `BLOB_READ_WRITE_TOKEN`.
+   - Crea un **Blob store** privado y conéctalo al proyecto. Vercel agrega `BLOB_STORE_ID` (o `<PREFIJO>_STORE_ID`) y la app se autentica con OIDC, sin token fijo.
 3. En **Settings → Environment Variables** agrega:
    - `AUTH_SECRET` (genera uno con `npx auth secret`)
    - `CRON_SECRET` (cualquier texto largo y aleatorio)
