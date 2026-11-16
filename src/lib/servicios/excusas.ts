@@ -112,15 +112,32 @@ export async function resolverExcusa(codigo: number, aprobar: boolean, comentari
 
 export async function recalcularPorAusencia(excusa: Excusa, autorId: string | null) {
   const desde = aISO(excusa.fechaInicio);
-  const hasta = aISO(excusa.fechaFin);
-  const afectados = await turnosAfectados(excusa.usuarioId, desde, hasta, excusa.horaInicio, excusa.horaFin);
+  const afectados = await turnosAfectados(excusa.usuarioId, desde, aISO(excusa.fechaFin), excusa.horaInicio, excusa.horaFin);
   if (!afectados.length) return null;
-  const usuario = await db.usuario.findUniqueOrThrow({ where: { id: excusa.usuarioId } });
-
   await db.turno.updateMany({ where: { id: { in: afectados.map((t) => t.id) } }, data: { estado: "LIBERADO", excusaId: excusa.id } });
+  const resultado = await calcularCobertura(excusa, afectados);
+  return db.corrida.create({
+    data: { tipo: "RECALCULO", semanaInicio: aFecha(lunesDe(desde)), excusaId: excusa.id, autorId, parametros: {}, resultado: resultado as unknown as Prisma.InputJsonValue },
+  });
+}
 
+/**
+ * Vuelve a calcular un recálculo que todavía no se aplicó, con la malla como está ahora
+ * (por ejemplo, después de liberar a alguien a mano para que pueda cubrir).
+ */
+export async function volverACalcularCobertura(corridaId: string) {
+  const corrida = await db.corrida.findUniqueOrThrow({ where: { id: corridaId }, include: { excusa: true } });
+  if (corrida.estado !== "BORRADOR" || !corrida.excusa) throw new Error("Este recálculo ya fue aplicado o descartado.");
+  const liberados = await db.turno.findMany({ where: { excusaId: corrida.excusa.id, estado: "LIBERADO" }, orderBy: [{ fecha: "asc" }, { horaInicio: "asc" }] });
+  if (!liberados.length) throw new Error("La ausencia ya no tiene turnos liberados.");
+  const resultado = await calcularCobertura(corrida.excusa, liberados);
+  await db.corrida.update({ where: { id: corridaId }, data: { resultado: resultado as unknown as Prisma.InputJsonValue } });
+}
+
+async function calcularCobertura(excusa: Excusa, afectados: { id: string; usuarioId: string; oficinaId: string; fecha: Date; horaInicio: number; horaFin: number }[]) {
+  const usuario = await db.usuario.findUniqueOrThrow({ where: { id: excusa.usuarioId } });
   // El motor trabaja por semana: se arma el contexto de cada semana afectada.
-  const semanas = [...new Set(rangoDias(desde, hasta).map(lunesDe))];
+  const semanas = [...new Set(afectados.map((t) => lunesDe(aISO(t.fecha))))];
   const coberturas = [];
   const impacto = [];
   const verificaciones = new Map<string, boolean>();
@@ -137,23 +154,7 @@ export async function recalcularPorAusencia(excusa: Excusa, autorId: string | nu
     for (const v of r.verificaciones) verificaciones.set(v.texto, (verificaciones.get(v.texto) ?? true) && v.ok);
     explicacion ||= r.explicacion;
   }
-
-  return db.corrida.create({
-    data: {
-      tipo: "RECALCULO",
-      semanaInicio: aFecha(lunesDe(desde)),
-      excusaId: excusa.id,
-      autorId,
-      parametros: {},
-      resultado: {
-        coberturas,
-        impacto,
-        verificaciones: [...verificaciones].map(([texto, ok]) => ({ texto, ok })),
-        explicacion,
-        persona: usuario.nombre,
-      } as unknown as Prisma.InputJsonValue,
-    },
-  });
+  return { coberturas, impacto, verificaciones: [...verificaciones].map(([texto, ok]) => ({ texto, ok })), explicacion, persona: usuario.nombre };
 }
 
 export async function rangoTexto(e: Pick<Excusa, "fechaInicio" | "fechaFin">) {

@@ -327,6 +327,85 @@ export class ColasSimulacionEngine implements AssignmentEngine {
   }
 
   // ---------------------------------------------------------------- RF-06: recálculo por ausencia
+  /**
+   * Cubre un turno liberado por tramos cuando nadie puede tomarlo completo. En cada paso elige a quien cubre
+   * el tramo más largo del hueco que queda: una persona sin turno ese día o alguien cuyo turno queda pegado al
+   * hueco y puede alargarlo sin pasar de 8 h en el día. Respeta el tope semanal y el descanso de 12 h.
+   */
+  private cubrirPorPartes(e: EntradaCobertura, plan: EstadoPlan, lib: CoberturaPropuesta["liberado"]): CoberturaPropuesta[] {
+    const par = e.parametros;
+    const oficina = (id: string) => e.oficinas.find((o) => o.id === id);
+    const destino = oficina(lib.oficinaId)!;
+    const MIN_TRAMO = 60;
+    const MAX_HORAS_DIA = 8;
+    const huecos: [number, number][] = [[lib.inicio, lib.fin]];
+    const resultado: CoberturaPropuesta[] = [];
+
+    for (let vuelta = 0; vuelta < 12 && huecos.length; vuelta++) {
+      type Tramo = { hueco: number; inicio: number; fin: number; persona: PersonaMotor; modalidad: CandidatoCobertura["modalidad"]; min: number | null; extiende: string | null; costo: number };
+      let mejor: Tramo | null = null as Tramo | null;
+      for (const persona of e.personas) {
+        if (persona.id === lib.usuarioId) continue;
+        const origen = oficina(persona.oficinaId);
+        if (!origen) continue;
+        const misma = persona.oficinaId === lib.oficinaId;
+        const min = misma ? 0 : minutosEntre(origen.ciudad, destino.ciudad);
+        const presencial = misma || (min !== null && min <= MAX_MINUTOS_PRESENCIAL && (origen.ciudad === destino.ciudad || par.permitirApoyosEntreCiudades));
+        const virtual = !misma && origen.atencionVirtual && destino.atencionVirtual && (origen.ciudad === destino.ciudad || par.permitirApoyosEntreCiudades);
+        if (!presencial && !virtual) continue;
+        const modalidad: CandidatoCobertura["modalidad"] = misma ? "MISMA_OFICINA" : presencial ? "PRESENCIAL" : "VIRTUAL";
+        const base = (misma ? 0 : modalidad === "PRESENCIAL" ? 100 + (min ?? 0) : 300) + plan.horasDe(persona.id);
+        const suyos = plan.turnosDe(persona.id, lib.fecha);
+
+        huecos.forEach(([a, b], i) => {
+          const opciones: { inicio: number; fin: number; extiende: string | null }[] = [];
+          if (suyos.length === 0) {
+            for (let fin = b; fin - a >= MIN_TRAMO; fin -= 30) if (plan.puedeTomar(persona, lib.fecha, a, fin)) { opciones.push({ inicio: a, fin, extiende: null }); break; }
+            for (let ini = a + 30; b - ini >= MIN_TRAMO; ini += 30) if (plan.puedeTomar(persona, lib.fecha, ini, b)) { opciones.push({ inicio: ini, fin: b, extiende: null }); break; }
+          } else if (suyos.length === 1 && persona.oficinaId === lib.oficinaId) {
+            // alargar el turno propio solo en la misma oficina (no tiene sentido viajar a mitad de jornada)
+            const t = suyos[0];
+            if (t.fin >= a && t.fin < b)
+              for (let fin = b; fin - t.fin >= MIN_TRAMO; fin -= 30)
+                if (horasTrabajadas(t.inicio, fin) <= MAX_HORAS_DIA && plan.puedeTomar(persona, lib.fecha, t.fin, fin, true)) { opciones.push({ inicio: t.fin, fin, extiende: `${fmtHora(t.inicio)} a ${fmtHora(t.fin)}` }); break; }
+            if (t.inicio <= b && t.inicio > a)
+              for (let ini = a; t.inicio - ini >= MIN_TRAMO; ini += 30)
+                if (horasTrabajadas(ini, t.fin) <= MAX_HORAS_DIA && plan.puedeTomar(persona, lib.fecha, ini, t.inicio, true)) { opciones.push({ inicio: ini, fin: t.inicio, extiende: `${fmtHora(t.inicio)} a ${fmtHora(t.fin)}` }); break; }
+          }
+          for (const o of opciones) {
+            const largo = o.fin - o.inicio;
+            const costo = base + (o.extiende ? -5 : 0);
+            const actual = mejor as Tramo | null;
+            if (!actual || largo > actual.fin - actual.inicio || (largo === actual.fin - actual.inicio && costo < actual.costo))
+              mejor = { hueco: i, inicio: o.inicio, fin: o.fin, persona, modalidad, min, extiende: o.extiende, costo };
+          }
+        });
+      }
+      const m = mejor as Tramo | null;
+      if (!m) break;
+      const horasAntes = plan.horasDe(m.persona.id);
+      const horasDespues = horasAntes + horasTrabajadas(m.inicio, m.fin);
+      plan.agregar({ usuarioId: m.persona.id, oficinaId: lib.oficinaId, fecha: lib.fecha, inicio: m.inicio, fin: m.fin, tipo: "COBERTURA", virtual: m.modalidad === "VIRTUAL", cubreA: lib.nombre });
+      const origen = oficina(m.persona.oficinaId)!;
+      const tramo = `${fmtHora(m.inicio)} a ${fmtHora(m.fin)}`;
+      const razon = m.extiende
+        ? `Alarga su turno de ${m.extiende} para cubrir de ${tramo} · pasa de ${fmtH(horasAntes)} a ${fmtH(horasDespues)} h`
+        : m.modalidad === "MISMA_OFICINA"
+          ? `Misma oficina, cubre de ${tramo} · pasa de ${fmtH(horasAntes)} a ${fmtH(horasDespues)} h`
+          : m.modalidad === "PRESENCIAL"
+            ? `Viene desde ${origen.nombre}${m.min ? ` (a ${m.min} min)` : ""}, cubre de ${tramo} · pasa de ${fmtH(horasAntes)} a ${fmtH(horasDespues)} h`
+            : `Atención virtual desde ${origen.nombre}, cubre de ${tramo} · pasa de ${fmtH(horasAntes)} a ${fmtH(horasDespues)} h`;
+      resultado.push({
+        liberado: { ...lib, inicio: m.inicio, fin: m.fin },
+        candidato: { usuarioId: m.persona.id, nombre: m.persona.nombre, oficinaOrigenId: m.persona.oficinaId, modalidad: m.modalidad, minutosViaje: m.min || undefined, horasAntes, horasDespues, razon },
+      });
+      const [a, b] = huecos[m.hueco];
+      huecos.splice(m.hueco, 1, ...([[a, m.inicio], [m.fin, b]] as [number, number][]).filter(([x, y]) => y - x > 0));
+    }
+    for (const [a, b] of huecos) resultado.push({ liberado: { ...lib, inicio: a, fin: b }, candidato: null });
+    return resultado.sort((x, y) => x.liberado.inicio - y.liberado.inicio);
+  }
+
   cubrirAusencia(e: EntradaCobertura): ResultadoCobertura {
     const par = e.parametros;
     const idsLiberados = new Set(e.liberados.map((l) => l.turnoId));
@@ -429,9 +508,14 @@ export class ColasSimulacionEngine implements AssignmentEngine {
           alternativasTexto.push(texto);
         }
       }
-      const { costo: _c, ...cand } = elegido ?? ({ costo: 0 } as CandidatoCobertura & { costo: number });
+      if (!elegido) {
+        // Nadie puede tomar el bloque completo: se reparte por tramos (otra persona libre o alguien que alarga su turno).
+        coberturas.push(...this.cubrirPorPartes(e, plan, lib));
+        continue;
+      }
+      const { costo: _c, ...cand } = elegido;
       void _c;
-      coberturas.push({ liberado: lib, candidato: elegido ? (cand as CandidatoCobertura) : null });
+      coberturas.push({ liberado: lib, candidato: cand as CandidatoCobertura });
     }
 
     // Impacto en el nivel de servicio de cada día afectado.

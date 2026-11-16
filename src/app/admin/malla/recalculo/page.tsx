@@ -25,7 +25,7 @@ import {
 import { NOMBRE_TIPO } from "@/components/ui";
 import { PestanasMalla } from "../pestanas";
 import { AccionesRecalculo } from "./aplicar";
-import { aplicarRecalculoForm } from "../acciones";
+import { aplicarRecalculoForm, volverACalcularRecalculo } from "../acciones";
 
 export const metadata = { title: "Recálculo de cobertura" };
 
@@ -107,6 +107,7 @@ export default async function PaginaRecalculo({
   }
 
   const r = corrida.resultado as unknown as ResultadoRecalculo;
+  const liberadosN = new Set(r.coberturas.map((c) => c.liberado.turnoId)).size;
   const nombreCorto = r.persona.split(" ")[0];
   const cubiertos = r.coberturas.filter((c) => c.candidato);
   const avisar = [
@@ -148,6 +149,10 @@ export default async function PaginaRecalculo({
             id="form-aplicar"
             action={aplicarRecalculoForm.bind(null, corrida.id)}
           />
+          <form
+            id="form-recalcular"
+            action={volverACalcularRecalculo.bind(null, corrida.id)}
+          />
           <div className="encabezado">
             <div>
               <h1 className="titulo-pagina">
@@ -159,9 +164,9 @@ export default async function PaginaRecalculo({
                 {corrida.excusa
                   ? ` (${NOMBRE_TIPO[corrida.excusa.tipo].toLowerCase()})`
                   : ""}{" "}
-                · el motor liberó {r.coberturas.length}{" "}
-                {r.coberturas.length === 1 ? "turno" : "turnos"} y propone quién{" "}
-                {r.coberturas.length === 1 ? "lo cubre" : "los cubre"}
+                · el motor liberó {liberadosN}{" "}
+                {liberadosN === 1 ? "turno" : "turnos"} y propone quién{" "}
+                {liberadosN === 1 ? "lo cubre" : "los cubre"}
               </p>
             </div>
           </div>
@@ -172,7 +177,7 @@ export default async function PaginaRecalculo({
               const { dia, mes } = partes(l.fecha);
               return (
                 <div
-                  key={l.turnoId}
+                  key={`${l.turnoId}-${l.inicio}`}
                   className="fila"
                   style={{ padding: "20px 0", gap: 18 }}
                 >
@@ -245,7 +250,7 @@ export default async function PaginaRecalculo({
                     </div>
                   ) : (
                     <div className="aviso alerta" style={{ flex: 2 }}>
-                      Nadie puede cubrirlo sin romper las reglas. Ajusta a mano.
+                      Nadie disponible para {fmtRangoHoras(l.inicio, l.fin)} sin romper las reglas. Libera a alguien en la malla y dale Volver a calcular, o ajusta a mano.
                     </div>
                   )}
                 </div>
@@ -304,6 +309,7 @@ export default async function PaginaRecalculo({
           >
             <AccionesRecalculo
               formId="form-aplicar"
+              recalcularFormId="form-recalcular"
               habilitado={cubiertos.length > 0}
               ajustarHref={
                 primera

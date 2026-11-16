@@ -7,6 +7,7 @@ import type { ParametrosMotor } from "@/lib/engine/tipos";
 import { horaAMinutos } from "@/lib/fechas";
 import { aplicarCobertura, confirmarPropuesta, copiarSemanaAnterior, generarPropuesta, deshacerCambioTurno, descartarCambios, guardarTurnoManual, publicarCambios, quitarTurno, restaurarTurnoBorrado } from "@/lib/servicios/malla";
 import { db } from "@/lib/db";
+import { volverACalcularCobertura } from "@/lib/servicios/excusas";
 
 export type Resultado = { ok?: string; error?: string } | undefined;
 
@@ -104,4 +105,11 @@ export async function descartarRecalculo(corridaId: string) {
 
 export async function aplicarRecalculoForm(corridaId: string, form: FormData) {
   await aplicarRecalculo(corridaId, form.get("avisar") === "on");
+}
+
+export async function volverACalcularRecalculo(corridaId: string) {
+  await sesionRequerida("ADMIN");
+  await volverACalcularCobertura(corridaId);
+  revalidatePath("/admin/malla/recalculo");
+  redirect(`/admin/malla/recalculo?id=${corridaId}`);
 }

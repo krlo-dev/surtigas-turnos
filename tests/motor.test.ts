@@ -124,3 +124,28 @@ describe("Importador de Digiturno", () => {
     expect(JSON.stringify(agregados)).not.toMatch(/Operador Ficticio|operador1/);
   });
 });
+
+describe("Cobertura por tramos", () => {
+  it("reparte un turno completo entre quienes pueden alargar el suyo y deja a la vista el tramo sin cubrir", () => {
+    const ofi: OficinaMotor = { id: "cb", nombre: "Carmen de Bolivar", ciudad: "Carmen de Bolivar", zona: "Bolívar", capacidad: 2, atencionVirtual: false, horaApertura: 8, horaCierre: 17, abreSabado: true, horaCierreSabado: 12 };
+    const gente: PersonaMotor[] = [
+      { id: "juan", nombre: "Juan Pérez", oficinaId: "cb", horasSemana: 42 },
+      { id: "admin", nombre: "Ana Mora", oficinaId: "cb", horasSemana: 42 },
+      { id: "carlos", nombre: "Carlos Llanos", oficinaId: "cb", horasSemana: 42 },
+    ];
+    const mie = sumarDias(LUNES, 2);
+    const turnos = [
+      { id: "tj", usuarioId: "juan", oficinaId: "cb", fecha: mie, inicio: 8 * 60, fin: 17 * 60, tipo: "MOTOR" as const, virtual: false },
+      { id: "ta", usuarioId: "admin", oficinaId: "cb", fecha: mie, inicio: 8 * 60, fin: 13 * 60, tipo: "MOTOR" as const, virtual: false },
+      { id: "tc", usuarioId: "carlos", oficinaId: "cb", fecha: mie, inicio: 10 * 60, fin: 15 * 60, tipo: "MOTOR" as const, virtual: false },
+    ];
+    const res = motor.cubrirAusencia({
+      liberados: [{ turnoId: "tj", usuarioId: "juan", nombre: "Juan Pérez", oficinaId: "cb", fecha: mie, inicio: 8 * 60, fin: 17 * 60 }],
+      turnosSemana: turnos, oficinas: [ofi], personas: gente, ausencias: [], demanda: { cb: demanda[OFICINAS_SEED[0].clave] }, parametros: par,
+    });
+    // Carlos alarga su turno hacia atrás (8 a 10) y Ana hacia adelante (13 a 17); de 10 a 13 los dos ya están trabajando
+    const tramos = res.coberturas.map((c) => [c.liberado.inicio / 60, c.liberado.fin / 60, c.candidato?.usuarioId ?? null]);
+    expect(tramos).toEqual([[8, 10, "carlos"], [10, 13, null], [13, 17, "admin"]]);
+    expect(res.verificaciones.every((v) => v.ok)).toBe(true);
+  });
+});
