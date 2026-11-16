@@ -1,15 +1,15 @@
 "use client";
 
-import { Check, Copy, MapPin, Pencil, X } from "lucide-react";
+import { Check, Copy, MapPin, Pencil, Undo2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactNode } from "react";
 import { Avatar, Cinta, NOMBRE_TIPO } from "@/components/ui";
 import { DIAS_CORTOS, diaSemana, fmtHora, fmtRangoHoras, partes } from "@/lib/fechas";
 import type { vistaMalla } from "@/lib/servicios/vista-malla";
-import { copiar, deshacerQuitar, eliminarTurno, guardarTurno, publicar } from "./acciones";
+import { copiar, descartar, deshacerTurno, eliminarTurno, guardarTurno, publicar, restaurarBorrado, type Borrado } from "./acciones";
 
 type Vista = NonNullable<Awaited<ReturnType<typeof vistaMalla>>>;
-type Sel = { personaId: string; nombre: string; fecha: string; turnoId?: string; inicio: number; fin: number; oficinaId: string; porQuitar?: boolean };
+type Sel = { personaId: string; nombre: string; fecha: string; turnoId?: string; inicio: number; fin: number; oficinaId: string; porQuitar?: boolean; deshacible?: boolean };
 
 export function GrillaMalla({ v, cabecera, abrirNuevo }: { v: Vista; cabecera: ReactNode; abrirNuevo: boolean }) {
   const router = useRouter();
@@ -24,6 +24,8 @@ export function GrillaMalla({ v, cabecera, abrirNuevo }: { v: Vista; cabecera: R
   const [oficina, setOficina] = useState(sel?.oficinaId ?? v.oficina.id);
   const [persona, setPersona] = useState(sel?.personaId ?? "");
   const [msg, setMsg] = useState<{ ok?: string; error?: string } | null>(null);
+  const [borrado, setBorrado] = useState<Borrado | null>(null);
+  const [confirmarDescarte, setConfirmarDescarte] = useState(false);
 
   const abrir = (s: Sel) => {
     setSel(s);
@@ -33,10 +35,12 @@ export function GrillaMalla({ v, cabecera, abrirNuevo }: { v: Vista; cabecera: R
     setPersona(s.personaId);
     setMsg(null);
   };
-  const correr = (fn: () => Promise<{ ok?: string; error?: string } | undefined>, cerrar = false) =>
+  const correr = (fn: () => Promise<{ ok?: string; error?: string; borrado?: Borrado } | undefined>, cerrar = false) =>
     iniciar(async () => {
       const r = await fn();
       setMsg(r ?? null);
+      setBorrado(r?.borrado ?? null);
+      setConfirmarDescarte(false);
       if (!r?.error && cerrar) setSel(null);
       router.refresh();
     });
@@ -51,11 +55,31 @@ export function GrillaMalla({ v, cabecera, abrirNuevo }: { v: Vista; cabecera: R
           <button className="btn btn-secundario btn-sm" disabled={pendiente} onClick={() => correr(() => copiar(v.lunes, v.oficina.id))}>
             <Copy /> Copiar
           </button>
+          {v.sinPublicar > 0 && (
+            <button
+              className={`btn btn-sm ${confirmarDescarte ? "btn-texto-peligro" : "btn-quieto"}`}
+              disabled={pendiente}
+              onClick={() => (confirmarDescarte ? correr(() => descartar(v.lunes, v.oficina.id), true) : setConfirmarDescarte(true))}
+              onBlur={() => setConfirmarDescarte(false)}
+              title="Deja la malla como la última versión publicada"
+            >
+              <Undo2 /> {confirmarDescarte ? "¿Descartar todo?" : "Descartar cambios"}
+            </button>
+          )}
           <button className="btn btn-primario btn-sm" disabled={pendiente || v.sinPublicar === 0} onClick={() => correr(() => publicar(v.lunes, v.oficina.id))}>
             <Check /> Publicar{v.sinPublicar ? ` (${v.sinPublicar})` : ""}
           </button>
         </div>
-        {msg && <div className={`aviso ${msg.error ? "error" : "ok"}`} style={{ borderRadius: 0 }}>{msg.error ?? msg.ok}</div>}
+        {msg && (
+          <div className={`aviso ${msg.error ? "error" : "ok"}`} style={{ borderRadius: 0, alignItems: "center" }}>
+            <span style={{ flex: 1 }}>{msg.error ?? msg.ok}</span>
+            {borrado && (
+              <button className="btn btn-secundario btn-sm" disabled={pendiente} onClick={() => correr(() => restaurarBorrado(borrado))}>
+                <Undo2 /> Deshacer
+              </button>
+            )}
+          </div>
+        )}
         <div className="grilla-scroll">
           <div className="grilla">
             <div className="celda-cab">Semana {v.semana}</div>
@@ -106,7 +130,7 @@ export function GrillaMalla({ v, cabecera, abrirNuevo }: { v: Vista; cabecera: R
                 {sel.nombre} · {etiquetaDia(sel.fecha)} · {fmtRangoHoras(sel.inicio, sel.fin)}. Se elimina y se le avisa cuando le des Publicar.
               </div>
             </div>
-            <button className="btn btn-secundario" disabled={pendiente} onClick={() => correr(() => deshacerQuitar(sel.turnoId!), true)}>
+            <button className="btn btn-secundario" disabled={pendiente} onClick={() => correr(() => deshacerTurno(sel.turnoId!), true)}>
               Deshacer
             </button>
             <button className="btn-icono sm" onClick={() => setSel(null)} aria-label="Cerrar editor">
@@ -181,6 +205,11 @@ export function GrillaMalla({ v, cabecera, abrirNuevo }: { v: Vista; cabecera: R
             >
               Guardar
             </button>
+            {sel.turnoId && sel.deshacible && (
+              <button className="btn btn-secundario" disabled={pendiente} onClick={() => correr(() => deshacerTurno(sel.turnoId!), true)} title="Vuelve a como estaba en la última publicación">
+                <Undo2 /> Deshacer cambios
+              </button>
+            )}
             {sel.turnoId && (
               <button className="btn btn-texto-peligro" disabled={pendiente} onClick={() => correr(() => eliminarTurno(sel.turnoId!), true)}>
                 Quitar turno
@@ -256,7 +285,7 @@ function Fila({ f, v, sel, abrir }: { f: Vista["filas"][number]; v: Vista; sel: 
               <button
                 key={t.id}
                 className={`bloque ${t.clase} ${sel?.turnoId === t.id ? "seleccionado" : ""}`}
-                onClick={() => t.clase !== "liberado" && abrir({ personaId: f.persona.id, nombre: f.persona.nombre, fecha, turnoId: t.id, inicio: t.inicio, fin: t.fin, oficinaId: t.oficinaId, porQuitar: t.clase === "quitar" })}
+                onClick={() => t.clase !== "liberado" && abrir({ personaId: f.persona.id, nombre: f.persona.nombre, fecha, turnoId: t.id, inicio: t.inicio, fin: t.fin, oficinaId: t.oficinaId, porQuitar: t.clase === "quitar", deshacible: t.deshacible })}
                 title={`${fmtRangoHoras(t.inicio, t.fin)} · ${t.sub}`}
               >
                 <span className="barra-estado" />

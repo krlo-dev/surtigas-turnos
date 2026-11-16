@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { sesionRequerida } from "@/auth";
 import type { ParametrosMotor } from "@/lib/engine/tipos";
 import { horaAMinutos } from "@/lib/fechas";
-import { aplicarCobertura, confirmarPropuesta, copiarSemanaAnterior, generarPropuesta, deshacerQuitarTurno, guardarTurnoManual, publicarCambios, quitarTurno } from "@/lib/servicios/malla";
+import { aplicarCobertura, confirmarPropuesta, copiarSemanaAnterior, generarPropuesta, deshacerCambioTurno, descartarCambios, guardarTurnoManual, publicarCambios, quitarTurno, restaurarTurnoBorrado } from "@/lib/servicios/malla";
 import { db } from "@/lib/db";
 
 export type Resultado = { ok?: string; error?: string } | undefined;
@@ -21,18 +21,38 @@ export async function guardarTurno(datos: { id?: string; usuarioId: string; ofic
   return { ok: "Turno guardado como ajuste manual." };
 }
 
-export async function eliminarTurno(id: string): Promise<Resultado> {
+export type Borrado = { usuarioId: string; oficinaId: string; fecha: string; inicio: number; fin: number };
+
+export async function eliminarTurno(id: string): Promise<{ ok?: string; error?: string; borrado?: Borrado }> {
   await sesionRequerida("ADMIN");
-  const pendiente = await quitarTurno(id);
+  const r = await quitarTurno(id);
   revalidatePath("/admin/malla");
-  return { ok: pendiente ? "Turno marcado para quitar. Se elimina cuando le des Publicar." : "Turno quitado." };
+  return r.pendiente ? { ok: "Turno marcado para quitar. Se elimina cuando le des Publicar." } : { ok: "Turno quitado.", borrado: r.borrado };
 }
 
-export async function deshacerQuitar(id: string): Promise<Resultado> {
+export async function deshacerTurno(id: string): Promise<Resultado> {
   await sesionRequerida("ADMIN");
-  await deshacerQuitarTurno(id);
+  const hecho = await deshacerCambioTurno(id);
   revalidatePath("/admin/malla");
-  return { ok: "Listo, el turno se queda." };
+  return { ok: hecho ? "Cambio deshecho." : "Ese turno no tenía cambios sin publicar." };
+}
+
+export async function restaurarBorrado(d: Borrado): Promise<Resultado> {
+  await sesionRequerida("ADMIN");
+  try {
+    await restaurarTurnoBorrado(d);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "No se pudo restaurar." };
+  }
+  revalidatePath("/admin/malla");
+  return { ok: "Turno restaurado." };
+}
+
+export async function descartar(lunes: string, oficinaId: string): Promise<Resultado> {
+  await sesionRequerida("ADMIN");
+  const n = await descartarCambios(lunes, oficinaId);
+  revalidatePath("/admin/malla");
+  return { ok: n ? `Se descartaron ${n} ${n === 1 ? "cambio" : "cambios"}. La malla quedó como la última publicada.` : "No había cambios sin publicar." };
 }
 
 export async function publicar(lunes: string, oficinaId: string) {

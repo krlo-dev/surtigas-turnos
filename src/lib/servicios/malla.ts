@@ -3,7 +3,7 @@
 
 import type { Prisma } from "@prisma/client";
 import { db } from "../db";
-import { MARCA_QUITAR, esPorQuitar } from "./por-quitar";
+import { MARCA_QUITAR, PREFIJO_COPIA, esPorQuitar } from "./por-quitar";
 import { obtenerMotor } from "../engine";
 import type { CoberturaPropuesta, ParametrosMotor, ResultadoPropuesta, SugerenciaApoyo } from "../engine/tipos";
 import { aFecha, aISO, diasDeSemana, hoyISO, lunesDe, minutosAhora, semanaISO, sumarDias } from "../fechas";
@@ -72,6 +72,19 @@ export async function confirmarPropuesta(corridaId: string, alternativaId: "A" |
 }
 
 // ------------------------------------------------------------------ RF-05: ajustes manuales
+// Todo cambio a mano queda sin publicar y se puede deshacer hasta que el administrador publica:
+// - turno nuevo: se borra;
+// - turno publicado que se editó: vuelve a como estaba (se guarda una copia en Configuracion, clave "deshacer:<id>");
+// - turno publicado que se quitó: queda "por quitar" y se restaura.
+
+type CopiaTurno = { oficinaId: string; horaInicio: number; horaFin: number; estado: "CONFIRMADO" | "PROPUESTO" | "MANUAL"; origen: "MOTOR" | "MANUAL" | "COBERTURA" | "APOYO"; nota: string | null; virtual: boolean };
+const claveCopia = (id: string) => `${PREFIJO_COPIA}${id}`;
+
+async function leerCopia(id: string): Promise<CopiaTurno | null> {
+  const c = await db.configuracion.findUnique({ where: { clave: claveCopia(id) } });
+  return c ? (c.valor as unknown as CopiaTurno) : null;
+}
+
 export async function guardarTurnoManual(d: { id?: string; usuarioId: string; oficinaId: string; fecha: string; inicio: number; fin: number }) {
   if (d.fin <= d.inicio) throw new Error("La hora de salida debe ser posterior a la de entrada.");
   const choque = await db.turno.findFirst({
@@ -79,29 +92,66 @@ export async function guardarTurnoManual(d: { id?: string; usuarioId: string; of
   });
   if (choque) throw new Error("Esa persona ya tiene un turno que se cruza en ese horario.");
   const data = { usuarioId: d.usuarioId, oficinaId: d.oficinaId, fecha: aFecha(d.fecha), horaInicio: d.inicio, horaFin: d.fin, estado: "MANUAL" as const, origen: "MANUAL" as const, publicado: false };
-  return d.id ? db.turno.update({ where: { id: d.id }, data }) : db.turno.create({ data });
+  if (!d.id) return db.turno.create({ data });
+  const antes = await db.turno.findUniqueOrThrow({ where: { id: d.id } });
+  // primera edición de un turno publicado: se guarda cómo estaba para poder deshacer
+  if (antes.publicado && antes.estado !== "LIBERADO" && !(await leerCopia(d.id))) {
+    const copia: CopiaTurno = { oficinaId: antes.oficinaId, horaInicio: antes.horaInicio, horaFin: antes.horaFin, estado: antes.estado as CopiaTurno["estado"], origen: antes.origen, nota: antes.nota, virtual: antes.virtual };
+    await db.configuracion.create({ data: { clave: claveCopia(d.id), valor: copia } });
+  }
+  return db.turno.update({ where: { id: d.id }, data });
 }
 
-
-/** Devuelve true si el turno quedó pendiente de publicar y false si se borró de una vez (nunca se había publicado). */
-export async function quitarTurno(id: string): Promise<boolean> {
+/** Quita un turno. Si nunca se publicó, se borra y se devuelven sus datos para poder deshacer. */
+export async function quitarTurno(id: string): Promise<{ pendiente: true } | { pendiente: false; borrado: { usuarioId: string; oficinaId: string; fecha: string; inicio: number; fin: number } }> {
   const t = await db.turno.findUniqueOrThrow({ where: { id } });
-  if (!t.publicado) {
+  const copia = await leerCopia(id);
+  if (!t.publicado && !copia) {
     await db.turno.delete({ where: { id } });
-    return false;
+    return { pendiente: false, borrado: { usuarioId: t.usuarioId, oficinaId: t.oficinaId, fecha: aISO(t.fecha), inicio: t.horaInicio, fin: t.horaFin } };
   }
-  await db.turno.update({ where: { id }, data: { estado: "LIBERADO", publicado: false, nota: `${MARCA_QUITAR}${t.estado}|${t.nota ?? ""}` } });
+  // si se había editado, lo que se quita es el turno publicado original
+  const base = copia ?? { oficinaId: t.oficinaId, horaInicio: t.horaInicio, horaFin: t.horaFin, estado: t.estado, nota: t.nota, virtual: t.virtual, origen: t.origen };
+  await db.turno.update({
+    where: { id },
+    data: { oficinaId: base.oficinaId, horaInicio: base.horaInicio, horaFin: base.horaFin, origen: base.origen, virtual: base.virtual, estado: "LIBERADO", publicado: false, nota: `${MARCA_QUITAR}${base.estado}|${base.nota ?? ""}` },
+  });
+  if (copia) await db.configuracion.delete({ where: { clave: claveCopia(id) } });
+  return { pendiente: true };
+}
+
+/** Deshace cualquier cambio sin publicar de un turno. Devuelve false si no había nada que deshacer. */
+export async function deshacerCambioTurno(id: string): Promise<boolean> {
+  const t = await db.turno.findUnique({ where: { id } });
+  if (!t || t.publicado) return false;
+  if (esPorQuitar(t)) {
+    const [estado, ...resto] = (t.nota ?? "").slice(MARCA_QUITAR.length).split("|");
+    const nota = resto.join("|");
+    const valido = ["CONFIRMADO", "PROPUESTO", "MANUAL"].includes(estado) ? (estado as CopiaTurno["estado"]) : "MANUAL";
+    await db.turno.update({ where: { id }, data: { estado: valido, publicado: true, nota: nota || null } });
+    return true;
+  }
+  const copia = await leerCopia(id);
+  if (copia) {
+    await db.turno.update({ where: { id }, data: { ...copia, publicado: true } });
+    await db.configuracion.delete({ where: { clave: claveCopia(id) } });
+    return true;
+  }
+  await db.turno.delete({ where: { id } }); // era un turno nuevo
   return true;
 }
 
-/** Deshace un "quitar turno" que todavía no se ha publicado. */
-export async function deshacerQuitarTurno(id: string) {
-  const t = await db.turno.findUniqueOrThrow({ where: { id } });
-  if (!esPorQuitar(t)) return;
-  const [estado, ...resto] = (t.nota ?? "").slice(MARCA_QUITAR.length).split("|");
-  const nota = resto.join("|");
-  const valido = ["CONFIRMADO", "PROPUESTO", "MANUAL"].includes(estado) ? (estado as "CONFIRMADO" | "PROPUESTO" | "MANUAL") : "MANUAL";
-  await db.turno.update({ where: { id }, data: { estado: valido, publicado: true, nota: nota || null } });
+/** Vuelve a crear un turno nuevo que se quitó antes de publicarlo. */
+export async function restaurarTurnoBorrado(d: { usuarioId: string; oficinaId: string; fecha: string; inicio: number; fin: number }) {
+  return guardarTurnoManual(d);
+}
+
+/** Descarta todos los cambios sin publicar de una oficina en la semana. */
+export async function descartarCambios(lunes: string, oficinaId: string) {
+  const pendientes = await db.turno.findMany({ where: { oficinaId, fecha: { gte: aFecha(lunes), lte: aFecha(sumarDias(lunes, 6)) }, publicado: false }, select: { id: true } });
+  let n = 0;
+  for (const t of pendientes) if (await deshacerCambioTurno(t.id)) n++;
+  return n;
 }
 
 export async function publicarCambios(lunes: string, oficinaId?: string) {
@@ -110,6 +160,8 @@ export async function publicarCambios(lunes: string, oficinaId?: string) {
   const porQuitar = pendientes.filter(esPorQuitar).map((t) => t.id);
   if (porQuitar.length) await db.turno.deleteMany({ where: { id: { in: porQuitar } } });
   await db.turno.updateMany({ where, data: { publicado: true } });
+  // al publicar, los cambios quedan firmes: ya no hay copia para deshacer
+  if (pendientes.length) await db.configuracion.deleteMany({ where: { clave: { in: pendientes.map((t) => claveCopia(t.id)) } } });
   const personas = [...new Set(pendientes.map((p) => p.usuarioId))];
   for (const id of personas) await enviarHorarioA(id, lunes);
   return personas.length;

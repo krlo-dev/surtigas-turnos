@@ -5,3 +5,6 @@ export const MARCA_QUITAR = "QUITAR:";
 export function esPorQuitar(t: { estado: string; publicado: boolean; nota: string | null }) {
   return t.estado === "LIBERADO" && !t.publicado && (t.nota ?? "").startsWith(MARCA_QUITAR);
 }
+
+/** Prefijo de las copias (en Configuracion) que guardan cómo estaba un turno publicado antes de editarlo. */
+export const PREFIJO_COPIA = "deshacer:";

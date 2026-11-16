@@ -5,7 +5,7 @@ import { db } from "../db";
 import { coberturaPorHora, horarioDelDia, horasDelDia, horasTrabajadas, requeridasDelDia } from "../engine/oficinas";
 import { aFecha, aISO, DIAS_CORTOS, diaSemana, diasDeSemana, hoyISO, partes, semanaISO, sumarDias } from "../fechas";
 import { contextoSemana } from "./contexto";
-import { esPorQuitar } from "./por-quitar";
+import { PREFIJO_COPIA, esPorQuitar } from "./por-quitar";
 
 export type ClaseBloque = "" | "propuesto" | "movido" | "manual" | "choque" | "liberado" | "quitar";
 
@@ -17,6 +17,8 @@ export interface BloqueVista {
   sub: string;
   oficinaId: string;
   publicado: boolean;
+  /** tiene un cambio sin publicar que se puede deshacer */
+  deshacible: boolean;
 }
 
 export type CeldaVista =
@@ -39,12 +41,14 @@ export async function vistaMalla(lunes: string, oficinaIdSel?: string) {
   const domingo = dias[6];
   const hoy = hoyISO();
 
-  const [turnos, excusas, usuarios, ultimaCorrida] = await Promise.all([
+  const [turnos, excusas, usuarios, ultimaCorrida, copias] = await Promise.all([
     db.turno.findMany({ where: { fecha: { gte: aFecha(lunes), lte: aFecha(domingo) } }, orderBy: { horaInicio: "asc" } }),
     db.excusa.findMany({ where: { estado: { in: ["PENDIENTE", "APROBADA"] }, fechaInicio: { lte: aFecha(domingo) }, fechaFin: { gte: aFecha(lunes) }, jornada: "TODO_EL_DIA" } }),
     db.usuario.findMany({ where: { rol: "COLABORADOR", activo: true }, include: { oficina: true }, orderBy: { nombre: "asc" } }),
     db.corrida.findFirst({ where: { tipo: "PROPUESTA", estado: "CONFIRMADA", semanaInicio: aFecha(lunes) }, orderBy: { numero: "desc" } }),
+    db.configuracion.findMany({ where: { clave: { startsWith: PREFIJO_COPIA } }, select: { clave: true } }),
   ]);
+  const editados = new Set(copias.map((c) => c.clave.slice(PREFIJO_COPIA.length)));
   if (!oficina) return null;
 
   const nombreOficina = new Map(oficinas.map((o) => [o.id, o.nombre]));
@@ -90,7 +94,7 @@ export async function vistaMalla(lunes: string, oficinaIdSel?: string) {
             sub = `Choca con turno en ${nombreOficina.get(choque.oficinaId) ?? "otra oficina"}`;
           } else if (t.estado === "MANUAL") {
             clase = "manual";
-            sub = t.publicado ? "Ajuste manual" : "Nuevo · manual";
+            sub = t.publicado ? "Ajuste manual" : editados.has(t.id) ? "Editado · sin publicar" : "Nuevo · manual";
           } else if (t.estado === "PROPUESTO") {
             clase = "propuesto";
             sub = "Propuesto";
@@ -102,7 +106,7 @@ export async function vistaMalla(lunes: string, oficinaIdSel?: string) {
             sub = t.nota ?? "Apoyo";
           }
           if (t.virtual && clase !== "liberado" && clase !== "quitar") sub += " · virtual";
-          return { id: t.id, inicio: t.horaInicio, fin: t.horaFin, clase, sub, oficinaId: t.oficinaId, publicado: t.publicado };
+          return { id: t.id, inicio: t.horaInicio, fin: t.horaFin, clase, sub, oficinaId: t.oficinaId, publicado: t.publicado, deshacible: !t.publicado && (editados.has(t.id) || esPorQuitar(t)) };
         }),
       };
     });
