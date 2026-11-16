@@ -1186,6 +1186,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 20px;
   overflow: hidden;
+  overflow: clip; /* recorta las esquinas sin romper el editor pegado abajo (sticky) */
 }
 .tablero-barra {
   display: flex;
@@ -1444,6 +1445,10 @@ button {
   background: repeating-linear-gradient(135deg, var(--stone) 0 2px, #fff 2px 4px);
 }
 .editor-anclado {
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
+  box-shadow: 0 -10px 24px rgba(16, 35, 63, 0.08);
   background: var(--blue-50);
   border-top: 1px solid var(--blue-100);
   padding: 18px 16px;
