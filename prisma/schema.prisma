@@ -1,0 +1,325 @@
+// Modelo de datos del Sistema de Gestión Inteligente de Turnos y Recursos (ERS sección 4.3).
+// Las entidades principales del ERS (Usuario, Oficina, Turno, Excusa, Notificacion) se amplían con
+// las tablas que necesita el motor de asignación (DemandaHora, Corrida, Apoyo).
+
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "client"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+enum Rol {
+  ADMIN
+  COLABORADOR
+}
+
+enum EstadoTurno {
+  CONFIRMADO // asignado y vigente
+  PROPUESTO // propuesto por el motor, pendiente de confirmar
+  MANUAL // ajuste manual de la administradora (el motor no lo mueve)
+  LIBERADO // liberado por una ausencia aprobada
+}
+
+enum OrigenTurno {
+  MOTOR
+  MANUAL
+  COBERTURA
+  APOYO
+}
+
+enum TipoExcusa {
+  EXCUSA
+  PERMISO
+  INCAPACIDAD
+}
+
+enum EstadoExcusa {
+  PENDIENTE
+  APROBADA
+  RECHAZADA
+}
+
+enum Jornada {
+  TODO_EL_DIA
+  UNAS_HORAS
+}
+
+enum TipoNotificacion {
+  HORARIO_SEMANAL
+  NUEVA_EXCUSA
+  RESOLUCION_EXCUSA
+  COBERTURA
+  RECUPERAR_CLAVE
+  INVITACION
+}
+
+enum EstadoNotificacion {
+  PENDIENTE
+  ENVIADO
+  ERROR
+}
+
+enum Fila {
+  GENERAL
+  PREFERENCIAL
+}
+
+enum TipoCorrida {
+  PROPUESTA
+  RECALCULO
+}
+
+enum EstadoCorrida {
+  BORRADOR
+  CONFIRMADA
+  DESCARTADA
+}
+
+enum Modalidad {
+  PRESENCIAL
+  VIRTUAL
+}
+
+enum EstadoApoyo {
+  SUGERIDO
+  APLICADO
+  DESCARTADO
+}
+
+model Oficina {
+  id               String   @id @default(cuid())
+  codigoDigiturno  Int?     @unique // IdOficina en el export de Digiturno
+  nombre           String
+  ciudad           String
+  zona             String // agrupación regional (Cartagena, Bolívar, Sucre, Córdoba)
+  capacidad        Int // puestos de atención: tope de personas por franja
+  atencionVirtual  Boolean  @default(false)
+  horaApertura     Int      @default(8)
+  horaCierre       Int      @default(17)
+  abreSabado       Boolean  @default(true)
+  horaCierreSabado Int      @default(12)
+  activa           Boolean  @default(true)
+  creadoEn         DateTime @default(now())
+
+  usuarios      Usuario[]
+  turnos        Turno[]
+  demanda       DemandaHora[]
+  operacion     OperacionHora[]
+  apoyosDesde   Apoyo[]       @relation("ApoyoDesde")
+  apoyosHacia   Apoyo[]       @relation("ApoyoHacia")
+}
+
+model Usuario {
+  id           String   @id @default(cuid())
+  nombre       String
+  correo       String   @unique
+  passwordHash String
+  rol          Rol      @default(COLABORADOR)
+  oficinaId    String?
+  oficina      Oficina? @relation(fields: [oficinaId], references: [id])
+  horasSemana  Int      @default(40) // horas contratadas por semana
+  activo       Boolean  @default(true)
+  creadoEn     DateTime @default(now())
+
+  turnos           Turno[]
+  excusas          Excusa[]           @relation("ExcusaSolicitante")
+  excusasRevisadas Excusa[]           @relation("ExcusaRevisor")
+  historial        HistorialExcusa[]
+  notificaciones   Notificacion[]
+  apoyos           Apoyo[]
+  tokens           TokenRecuperacion[]
+  corridas         Corrida[]
+}
+
+model Turno {
+  id         String      @id @default(cuid())
+  usuarioId  String
+  usuario    Usuario     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  oficinaId  String
+  oficina    Oficina     @relation(fields: [oficinaId], references: [id])
+  fecha      DateTime    @db.Date
+  horaInicio Int // minutos desde la medianoche
+  horaFin    Int
+  estado     EstadoTurno @default(CONFIRMADO)
+  origen     OrigenTurno @default(MOTOR)
+  virtual    Boolean     @default(false)
+  publicado  Boolean     @default(true)
+  nota       String?
+  corridaId  String?
+  corrida    Corrida?    @relation(fields: [corridaId], references: [id], onDelete: SetNull)
+  excusaId   String? // excusa que liberó este turno o que lo originó (cobertura)
+  cubreA     String? // nombre de la persona cubierta
+  creadoEn   DateTime    @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  @@index([fecha, oficinaId])
+  @@index([usuarioId, fecha])
+}
+
+model Excusa {
+  id                   String       @id @default(cuid())
+  codigo               Int          @unique @default(autoincrement())
+  usuarioId            String
+  usuario              Usuario      @relation("ExcusaSolicitante", fields: [usuarioId], references: [id], onDelete: Cascade)
+  tipo                 TipoExcusa
+  fechaInicio          DateTime     @db.Date
+  fechaFin             DateTime     @db.Date
+  jornada              Jornada      @default(TODO_EL_DIA)
+  horaInicio           Int?
+  horaFin              Int?
+  motivo               String
+  soporteUrl           String?
+  soporteNombre        String?
+  soporteBytes         Int?
+  estado               EstadoExcusa @default(PENDIENTE)
+  revisadoPorId        String?
+  revisadoPor          Usuario?     @relation("ExcusaRevisor", fields: [revisadoPorId], references: [id])
+  comentarioResolucion String?
+  canal                String       @default("web")
+  creadoEn             DateTime     @default(now())
+  resueltoEn           DateTime?
+
+  historial HistorialExcusa[]
+  corridas  Corrida[]
+
+  @@index([estado])
+}
+
+// RF-09: historial de estados de cada excusa
+model HistorialExcusa {
+  id       String       @id @default(cuid())
+  excusaId String
+  excusa   Excusa       @relation(fields: [excusaId], references: [id], onDelete: Cascade)
+  estado   EstadoExcusa
+  evento   String // registrada, aviso_enviado, aprobada, rechazada
+  nota     String?
+  autorId  String?
+  autor    Usuario?     @relation(fields: [autorId], references: [id])
+  creadoEn DateTime     @default(now())
+}
+
+model Notificacion {
+  id             String             @id @default(cuid())
+  tipo           TipoNotificacion
+  destinatarioId String?
+  destinatario   Usuario?           @relation(fields: [destinatarioId], references: [id], onDelete: SetNull)
+  correoDestino  String // destinatario real
+  enviadoA       String? // a dónde se envió de verdad (redirección de demo)
+  asunto         String
+  estado         EstadoNotificacion @default(PENDIENTE)
+  error          String?
+  proveedorId    String?
+  semana         Int?
+  referencia     String? // ej. EX-2041
+  fechaEnvio     DateTime           @default(now())
+
+  @@index([tipo, fechaEnvio])
+}
+
+// Demanda histórica agregada desde Digiturno (sin datos personales): una fila por oficina, día, hora, fila y servicio.
+model DemandaHora {
+  id                  String   @id @default(cuid())
+  oficinaId           String
+  oficina             Oficina  @relation(fields: [oficinaId], references: [id], onDelete: Cascade)
+  fecha               DateTime @db.Date
+  hora                Int
+  fila                Fila
+  servicio            String
+  llegadas            Int
+  atendidos           Int
+  abandonados         Int
+  cancelados          Int
+  sumaEsperaSeg       Int
+  sumaAtencionSeg     Int
+  atencionesConTiempo Int
+  enObjetivo          Int      @default(0) // atendidos con espera <= 5 min
+  fuente              String   @default("sintetico") // sintetico | digiturno
+
+  @@unique([oficinaId, fecha, hora, fila, servicio])
+  @@index([oficinaId, fecha])
+}
+
+// Personas y terminales activos por hora según Digiturno (conteos, sin identificar a nadie).
+model OperacionHora {
+  id          String   @id @default(cuid())
+  oficinaId   String
+  oficina     Oficina  @relation(fields: [oficinaId], references: [id], onDelete: Cascade)
+  fecha       DateTime @db.Date
+  hora        Int
+  operadores  Int
+  terminales  Int
+
+  @@unique([oficinaId, fecha, hora])
+}
+
+model Importacion {
+  id        String   @id @default(cuid())
+  archivo   String
+  filas     Int
+  desde     DateTime @db.Date
+  hasta     DateTime @db.Date
+  oficinas  Int
+  autorId   String?
+  creadoEn  DateTime @default(now())
+}
+
+// Cada ejecución del motor de asignación (propuesta semanal o recálculo por ausencia).
+model Corrida {
+  id           String        @id @default(cuid())
+  numero       Int           @unique @default(autoincrement())
+  tipo         TipoCorrida
+  estado       EstadoCorrida @default(BORRADOR)
+  semanaInicio DateTime      @db.Date
+  parametros   Json
+  resultado    Json
+  excusaId     String?
+  excusa       Excusa?       @relation(fields: [excusaId], references: [id], onDelete: SetNull)
+  autorId      String?
+  autor        Usuario?      @relation(fields: [autorId], references: [id])
+  creadoEn     DateTime      @default(now())
+
+  turnos Turno[]
+}
+
+// RF-14: redistribución de personal entre oficinas (presencial o virtual).
+model Apoyo {
+  id             String      @id @default(cuid())
+  usuarioId      String
+  usuario        Usuario     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  desdeOficinaId String
+  desdeOficina   Oficina     @relation("ApoyoDesde", fields: [desdeOficinaId], references: [id])
+  haciaOficinaId String
+  haciaOficina   Oficina     @relation("ApoyoHacia", fields: [haciaOficinaId], references: [id])
+  fecha          DateTime    @db.Date
+  horaInicio     Int
+  horaFin        Int
+  modalidad      Modalidad
+  estado         EstadoApoyo @default(SUGERIDO)
+  razon          String
+  usoDesde       Int
+  usoHacia       Int
+  esperaAntes    Int? // segundos
+  esperaDespues  Int?
+  turnoId        String?
+  creadoEn       DateTime    @default(now())
+}
+
+model TokenRecuperacion {
+  id        String   @id @default(cuid())
+  usuarioId String
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expira    DateTime
+  usado     Boolean  @default(false)
+  creadoEn  DateTime @default(now())
+}
+
+model Configuracion {
+  clave String @id
+  valor Json
+}
