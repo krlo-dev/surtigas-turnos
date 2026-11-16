@@ -39,6 +39,8 @@ import {
   fmtHace,
   fmtRangoHoras,
   fmtDiaCorto,
+  DIAS_LARGOS,
+  diaSemana,
 } from "@/lib/fechas";
 import { datosTablero } from "@/lib/servicios/tablero";
 
@@ -292,9 +294,26 @@ export default async function InicioAdmin({
             datos={d.grafico}
             etiquetaHoy={d.esHoy ? "Hoy" : d.refTexto}
           />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 28px", marginTop: 10, fontSize: 13 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <span style={{ width: 18, height: 3, borderRadius: 3, background: "#3981C0" }} />
+              <span>
+                <b style={{ fontWeight: 500 }}>Azul:</b> personas que tomaron turno cada hora{" "}
+                {d.esHoy ? "hoy" : `el ${d.refTexto}`}
+              </span>
+            </span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <span style={{ width: 18, height: 3, borderRadius: 3, background: "#7A9030" }} />
+              <span>
+                <b style={{ fontWeight: 500 }}>Verde:</b> lo normal a esa hora, promedio de los 4{" "}
+                {DIAS_LARGOS[diaSemana(d.ref)].toLowerCase().replace(/o$/, "os")} anteriores
+              </span>
+            </span>
+          </div>
           <p className="caption muted" style={{ marginTop: 6 }}>
-            Turnos de Digiturno por hora en {oficinaNombre}, comparados con el
-            promedio de las últimas 4 semanas del mismo día.
+            Datos de Digiturno en {oficinaNombre}. Si la azul va por encima de la
+            verde, ese día llegó más gente de lo habitual a esa hora; si va por
+            debajo, llegó menos.
           </p>
         </section>
 
