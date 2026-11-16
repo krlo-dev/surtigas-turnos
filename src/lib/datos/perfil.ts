@@ -52,6 +52,23 @@ export function construirPerfil(oficinaId: string, filas: FilaDemanda[], semanas
     const n = Math.max(1, diasPorDow[dow].size);
     return horas.map((v) => v / n);
   });
+
+  // Si el histórico no trae todos los días hábiles (por ejemplo, un export de un solo día),
+  // los días de lunes a sábado sin datos toman el patrón promedio de los días hábiles que sí tienen.
+  // El horario de cada oficina recorta después las horas (el sábado solo usa la mañana).
+  const conDatos = [1, 2, 3, 4, 5].filter((d) => diasPorDow[d].size > 0);
+  const base = conDatos.length ? conDatos : [6].filter((d) => diasPorDow[d].size > 0);
+  const diasEstimados: number[] = [];
+  if (base.length) {
+    const patron = new Array(24).fill(0).map((_, h) => base.reduce((a, d) => a + lambda[d][h], 0) / base.length);
+    for (const d of [1, 2, 3, 4, 5, 6]) {
+      if (diasPorDow[d].size === 0) {
+        lambda[d] = [...patron];
+        diasEstimados.push(d);
+      }
+    }
+  }
+  const diasConDatos = new Set(filas.map((f) => f.fecha)).size;
   const ahtGeneralSeg = nGen ? atGen / nGen : 360;
   const ahtPreferencialSeg = nPref ? atPref / nPref : ahtGeneralSeg * 1.2;
   const partePreferencial = llegTot ? llegPref / llegTot : 0.14;
@@ -71,7 +88,7 @@ export function construirPerfil(oficinaId: string, filas: FilaDemanda[], semanas
     }))
     .sort((a, b) => b.parte - a.parte);
 
-  const semanas = Math.max(1, Math.min(semanasHistorico, Math.ceil(new Set(filas.map((f) => f.fecha)).size / 6)));
+  const semanas = Math.max(1, Math.min(semanasHistorico, Math.ceil(diasConDatos / 6)));
   return {
     oficinaId,
     lambda,
@@ -82,6 +99,8 @@ export function construirPerfil(oficinaId: string, filas: FilaDemanda[], semanas
     pacienciaSeg,
     servicios,
     semanasHistorico: semanas,
-    turnosPorSemana: llegTot / semanas,
+    diasConDatos,
+    diasEstimados,
+    turnosPorSemana: lambda.reduce((a, horas) => a + horas.reduce((x, y) => x + y, 0), 0),
   };
 }

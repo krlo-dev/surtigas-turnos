@@ -4,7 +4,7 @@ import { db } from "../db";
 import { obtenerMotor } from "../engine";
 import { personasRequeridas } from "../engine/erlang";
 import { coberturaPorHora, horasDelDia, lambdaDe, metricasDia } from "../engine/oficinas";
-import { aFecha, aISO, diaSemana, fmtDiaMes, hoyISO, lunesDe, minutosAhora, sumarDias } from "../fechas";
+import { DIAS_CORTOS, aFecha, aISO, diaSemana, fmtDiaMes, hoyISO, lunesDe, minutosAhora, sumarDias } from "../fechas";
 import { contextoSemana, fechaUltimaDemanda } from "./contexto";
 
 interface Agregado {
@@ -24,11 +24,16 @@ function metricas(a: Agregado) {
   };
 }
 
-export async function datosTablero(oficinaGrafico?: string) {
+export async function datosTablero(oficinaGrafico?: string, diaElegido?: string) {
   const hoy = hoyISO();
   const ahora = minutosAhora();
   const ultima = (await fechaUltimaDemanda()) ?? hoy;
-  const ref = ultima >= hoy ? hoy : ultima; // día de referencia de los datos de Digiturno
+  // días con datos de Digiturno, para poder revisar cualquier día del histórico
+  const diasConDatos = (
+    await db.demandaHora.groupBy({ by: ["fecha"], where: { fecha: { lte: aFecha(hoy) } }, orderBy: { fecha: "desc" }, take: 180 })
+  ).map((g) => aISO(g.fecha));
+  const porDefecto = ultima >= hoy ? hoy : ultima; // día de referencia de los datos de Digiturno
+  const ref = diaElegido && diasConDatos.includes(diaElegido) ? diaElegido : porDefecto;
   const esHoy = ref === hoy;
   const horaCorte = esHoy ? Math.floor(ahora / 60) : 24;
   const lunes = lunesDe(hoy);
@@ -157,6 +162,10 @@ export async function datosTablero(oficinaGrafico?: string) {
     ref,
     esHoy,
     refTexto: fmtDiaMes(ref),
+    dias: (diasConDatos.includes(porDefecto) ? diasConDatos : [porDefecto, ...diasConDatos]).map((f) => ({
+      valor: f,
+      texto: f === hoy ? "Hoy" : `${DIAS_CORTOS[diaSemana(f)]} ${fmtDiaMes(f)}`,
+    })),
     diaSemana: diaSemana(hoy),
     kpis: {
       enTurno,

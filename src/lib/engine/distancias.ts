@@ -6,24 +6,29 @@ const normalizar = (s: string) =>
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
-    .trim();
+    .trim()
+    .replace(/^el /, ""); // "El Carmen de Bolívar" y "Carmen de Bolivar" son la misma ciudad
 
 const TABLA: [string, string, number][] = [
   ["cartagena", "turbaco", 25],
   ["cartagena", "arjona", 40],
   ["turbaco", "arjona", 20],
-  ["cartagena", "el carmen de bolivar", 110],
-  ["magangue", "el carmen de bolivar", 95],
+  ["cartagena", "carmen de bolivar", 110],
+  ["magangue", "carmen de bolivar", 95],
   ["sincelejo", "corozal", 20],
   ["sincelejo", "tolu", 45],
   ["corozal", "tolu", 60],
-  ["sincelejo", "el carmen de bolivar", 60],
+  ["sincelejo", "carmen de bolivar", 60],
   ["sincelejo", "sahagun", 75],
   ["monteria", "cerete", 25],
   ["monteria", "lorica", 60],
   ["cerete", "lorica", 45],
   ["monteria", "sahagun", 80],
   ["sincelejo", "magangue", 100],
+  ["monteria", "planeta rica", 55],
+  ["sahagun", "planeta rica", 45],
+  ["planeta rica", "caucasia", 110],
+  ["magangue", "mompox", 120],
 ];
 
 export const MAX_MINUTOS_PRESENCIAL = 60;

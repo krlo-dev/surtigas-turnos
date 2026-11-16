@@ -50,11 +50,11 @@ const pctDelta = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v * 100)}%`;
 export default async function InicioAdmin({
   searchParams,
 }: {
-  searchParams: Promise<{ oficina?: string }>;
+  searchParams: Promise<{ oficina?: string; dia?: string }>;
 }) {
-  const { oficina } = await searchParams;
+  const { oficina, dia } = await searchParams;
   const sesion = await auth();
-  const d = await datosTablero(oficina);
+  const d = await datosTablero(oficina, dia);
   const nombre = (sesion?.user?.name ?? "").split(" ")[0];
   const k = d.kpis;
   const atencion = d.carga.filter(
@@ -278,15 +278,15 @@ export default async function InicioAdmin({
             style={{ alignItems: "center", marginBottom: 14 }}
           >
             <h2 className="titulo-seccion">Llegadas de usuarios</h2>
-            <SelectorUrl
-              parametro="oficina"
-              valor={d.oficinaGrafico ?? ""}
-              opciones={d.oficinas.map((o) => ({
-                valor: o.id,
-                texto: `${o.nombre} · ${d.esHoy ? "hoy" : d.refTexto}`,
-              }))}
-              etiqueta="Oficina del gráfico"
-            />
+            <div style={{ display: "flex", gap: 8 }}>
+              <SelectorUrl
+                parametro="oficina"
+                valor={d.oficinaGrafico ?? ""}
+                opciones={d.oficinas.map((o) => ({ valor: o.id, texto: o.nombre }))}
+                etiqueta="Oficina del gráfico"
+              />
+              <SelectorUrl parametro="dia" valor={d.ref} opciones={d.dias} etiqueta="Día del gráfico" />
+            </div>
           </div>
           <GraficoLlegadas
             datos={d.grafico}

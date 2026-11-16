@@ -5,7 +5,7 @@ import { BarraUso, colorUso, Estado } from "@/components/ui";
 import { db } from "@/lib/db";
 import { coberturaPorHora, horasDelDia, metricasDia } from "@/lib/engine/oficinas";
 import { aFecha, fmtDuracion, fmtNumero, hoyISO, lunesDe, sumarDias } from "@/lib/fechas";
-import { contextoSemana } from "@/lib/servicios/contexto";
+import { contextoSemana, fechaUltimaDemanda } from "@/lib/servicios/contexto";
 import { FormularioOficina } from "./formulario";
 
 export const metadata = { title: "Oficinas" };
@@ -14,10 +14,13 @@ export default async function PaginaOficinas({ searchParams }: { searchParams: P
   const sp = await searchParams;
   const hoy = hoyISO();
   const ctx = await contextoSemana(lunesDe(hoy));
+  // con un histórico importado de otra época, la ventana termina en el último día con datos
+  const ultima = (await fechaUltimaDemanda()) ?? hoy;
+  const finVentana = ultima < hoy ? ultima : hoy;
   const [todas, personas, abandono] = await Promise.all([
     db.oficina.findMany({ orderBy: [{ activa: "desc" }, { zona: "asc" }, { capacidad: "desc" }] }),
     db.usuario.groupBy({ by: ["oficinaId"], where: { rol: "COLABORADOR", activo: true }, _count: true }),
-    db.demandaHora.groupBy({ by: ["oficinaId"], where: { fecha: { gte: aFecha(sumarDias(hoy, -7 * ctx.parametros.semanasHistorico)) } }, _sum: { llegadas: true, abandonados: true } }),
+    db.demandaHora.groupBy({ by: ["oficinaId"], where: { fecha: { gte: aFecha(sumarDias(finVentana, -7 * ctx.parametros.semanasHistorico + 1)), lte: aFecha(finVentana) } }, _sum: { llegadas: true, abandonados: true } }),
   ]);
   const q = (sp.q ?? "").toLowerCase();
   const oficinas = todas.filter((o) => !q || `${o.nombre} ${o.ciudad} ${o.zona}`.toLowerCase().includes(q));

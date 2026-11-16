@@ -182,7 +182,11 @@ export default async function PaginaPropuesta({ searchParams }: { searchParams: 
             <section className="seccion">
               <div className="encabezado" style={{ alignItems: "baseline" }}>
                 <h2 className="titulo-seccion">Tiempo de atención · {oficinaSel.nombre}</h2>
-                <span className="muted">Histórico de Digiturno · {perfil.semanasHistorico} semanas</span>
+                <span className="muted">
+                  {perfil.diasConDatos !== undefined && perfil.diasConDatos < 6
+                    ? `Histórico de Digiturno · ${perfil.diasConDatos} ${perfil.diasConDatos === 1 ? "día" : "días"} con datos, el resto de la semana es estimado`
+                    : `Histórico de Digiturno · ${perfil.semanasHistorico} semanas`}
+                </span>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 14, margin: "16px 0 6px" }}>
                 <div style={{ flex: 1, display: "flex", gap: 4 }}>

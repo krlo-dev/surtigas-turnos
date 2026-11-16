@@ -65,6 +65,10 @@ export interface PerfilDemanda {
   pacienciaSeg: number;
   servicios: ServicioDemanda[];
   semanasHistorico: number;
+  /** días distintos con datos en la ventana usada */
+  diasConDatos?: number;
+  /** días de la semana (1 = lunes … 6 = sábado) sin datos, estimados con el patrón de los demás */
+  diasEstimados?: number[];
   turnosPorSemana: number;
 }
 
