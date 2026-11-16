@@ -6,7 +6,7 @@ import { db } from "../db";
 import { MARCA_QUITAR, PREFIJO_COPIA, esPorQuitar } from "./por-quitar";
 import { obtenerMotor } from "../engine";
 import type { CoberturaPropuesta, ParametrosMotor, ResultadoPropuesta, SugerenciaApoyo } from "../engine/tipos";
-import { aFecha, aISO, diasDeSemana, hoyISO, lunesDe, minutosAhora, semanaISO, sumarDias } from "../fechas";
+import { aFecha, aISO, diasDeSemana, hoyISO, lunesDe, minutosAhora, semanaISO, sumarDias, diaSemana } from "../fechas";
 import { correoCobertura, correoHorarioSemanal, type DiaHorario } from "../notificaciones/plantillas";
 import { obtenerNotificador } from "../notificaciones/servicio";
 import { TIPO_LABEL } from "./excusas";
@@ -256,11 +256,22 @@ export async function aplicarCobertura(corridaId: string, avisar: boolean) {
 }
 
 // ------------------------------------------------------------------ RF-14: apoyos entre oficinas
-export async function sugerenciasApoyo(vista: "hoy" | "semana"): Promise<SugerenciaApoyo[]> {
-  const hoy = hoyISO();
+/**
+ * Días que revisa la vista de apoyos. "Semana" mira lo que queda de esta semana; si ya no queda ningún día hábil
+ * (domingo), pasa a la semana siguiente para que el administrador pueda planear los apoyos con tiempo.
+ */
+export function ventanaApoyos(vista: "hoy" | "semana", hoy = hoyISO()) {
+  if (vista === "hoy") return { lunes: lunesDe(hoy), dias: [hoy], proxima: false };
   const lunes = lunesDe(hoy);
+  const quedan = diasDeSemana(lunes).filter((d) => d >= hoy && diaSemana(d) !== 0);
+  if (quedan.length) return { lunes, dias: quedan, proxima: false };
+  const siguiente = sumarDias(lunes, 7);
+  return { lunes: siguiente, dias: diasDeSemana(siguiente).filter((d) => diaSemana(d) !== 0), proxima: true };
+}
+
+export async function sugerenciasApoyo(vista: "hoy" | "semana"): Promise<SugerenciaApoyo[]> {
+  const { lunes, dias } = ventanaApoyos(vista);
   const ctx = await contextoSemana(lunes);
-  const dias = vista === "hoy" ? [hoy] : diasDeSemana(lunes).filter((d) => d >= hoy);
   const sugerencias = obtenerMotor().sugerirApoyos({
     dias,
     desdeMinuto: vista === "hoy" ? minutosAhora() : undefined,

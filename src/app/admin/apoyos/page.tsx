@@ -4,9 +4,9 @@ import { BarraAdmin as BarraSuperiorAdmin } from "@/components/shell/barra-admin
 import { Avatar, BarraUso, colorUso } from "@/components/ui";
 import { db } from "@/lib/db";
 import { coberturaPorHora, horasDelDia, metricasDia } from "@/lib/engine/oficinas";
-import { aFecha, aISO, DIAS_CORTOS, diaSemana, fmtRangoHoras, hoyISO, lunesDe, partes, sumarDias } from "@/lib/fechas";
+import { aFecha, aISO, DIAS_CORTOS, diaSemana, fmtRangoFechas, fmtRangoHoras, hoyISO, partes, sumarDias } from "@/lib/fechas";
 import { contextoSemana } from "@/lib/servicios/contexto";
-import { sugerenciasApoyo } from "@/lib/servicios/malla";
+import { sugerenciasApoyo, ventanaApoyos } from "@/lib/servicios/malla";
 import { decidirApoyo } from "./acciones";
 
 export const metadata = { title: "Apoyos entre oficinas" };
@@ -15,17 +15,17 @@ export default async function PaginaApoyos({ searchParams }: { searchParams: Pro
   const { vista: v } = await searchParams;
   const vista = v === "semana" ? "semana" : "hoy";
   const hoy = hoyISO();
-  const lunes = lunesDe(hoy);
+  const { lunes, dias, proxima } = ventanaApoyos(vista);
   const [sugerencias, ctx, aplicados] = await Promise.all([
     sugerenciasApoyo(vista),
     contextoSemana(lunes),
-    db.apoyo.findMany({ where: { estado: "APLICADO", fecha: { gte: aFecha(vista === "hoy" ? hoy : lunes), lte: aFecha(vista === "hoy" ? hoy : sumarDias(lunes, 6)) } }, include: { usuario: true, desdeOficina: true, haciaOficina: true }, orderBy: [{ fecha: "asc" }, { horaInicio: "asc" }] }),
+    db.apoyo.findMany({ where: { estado: "APLICADO", fecha: { gte: aFecha(dias[0]), lte: aFecha(dias[dias.length - 1]) } }, include: { usuario: true, desdeOficina: true, haciaOficina: true }, orderBy: [{ fecha: "asc" }, { horaInicio: "asc" }] }),
   ]);
   const nombre = (id: string) => ctx.oficinas.find((o) => o.id === id)?.nombre ?? "";
   const diaTexto = (f: string) => (f === hoy ? "Hoy" : `${DIAS_CORTOS[diaSemana(f)]} ${partes(f).dia}`);
 
-  // Uso de cada oficina: hoy, o promedio de los días que quedan de la semana
-  const dias = vista === "hoy" ? [hoy] : Array.from({ length: 6 }, (_, i) => sumarDias(lunes, i)).filter((d) => d >= hoy);
+  // Uso de cada oficina: hoy, o promedio de los días que quedan de la semana (o de la próxima, si es domingo)
+  const textoSemana = proxima ? `la próxima semana (${fmtRangoFechas(lunes, sumarDias(lunes, 6))})` : "lo que queda de la semana";
   const usos = ctx.oficinas.map((o) => {
     const vals = dias
       .filter((d) => horasDelDia(o, d).length)
@@ -49,8 +49,8 @@ export default async function PaginaApoyos({ searchParams }: { searchParams: Pro
       </div>
 
       <section className="seccion">
-        <h2 className="titulo-seccion" style={{ marginBottom: 6 }}>Sugerencias del motor</h2>
-        {sugerencias.length === 0 && <p className="muted" style={{ padding: "14px 0" }}>Ninguna oficina necesita apoyo {vista === "hoy" ? "en lo que queda del día" : "en lo que queda de la semana"}.</p>}
+        <h2 className="titulo-seccion" style={{ marginBottom: 6 }}>Sugerencias del motor{vista === "semana" && proxima ? ` · semana del ${fmtRangoFechas(lunes, sumarDias(lunes, 6))}` : ""}</h2>
+        {sugerencias.length === 0 && <p className="muted" style={{ padding: "14px 0" }}>Ninguna oficina necesita apoyo {vista === "hoy" ? "en lo que queda del día" : `en ${textoSemana}`}.</p>}
         <div className="lista-filas" style={{ marginTop: 8 }}>
           {sugerencias.map((s) => (
             <div key={`${s.usuarioId}-${s.fecha}-${s.inicio}`} className="fila" style={{ padding: "18px 0", flexWrap: "wrap" }}>
@@ -112,7 +112,7 @@ export default async function PaginaApoyos({ searchParams }: { searchParams: Pro
 
       <section className="seccion" style={{ marginTop: 40 }}>
         <div className="encabezado" style={{ alignItems: "center", marginBottom: 18 }}>
-          <h2 className="titulo-seccion">Uso de cada oficina {vista === "hoy" ? "hoy" : "esta semana"}</h2>
+          <h2 className="titulo-seccion">Uso de cada oficina {vista === "hoy" ? "hoy" : proxima ? `la próxima semana (${fmtRangoFechas(lunes, sumarDias(lunes, 6))})` : "esta semana"}</h2>
           <div className="leyenda" style={{ marginTop: 0 }}>
             <span className="item"><span className="muestra" style={{ background: "var(--red)" }} /> &gt; 100%</span>
             <span className="item"><span className="muestra" style={{ background: "var(--lime-line)" }} /> Óptima</span>
