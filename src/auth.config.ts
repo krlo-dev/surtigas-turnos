@@ -3,7 +3,7 @@ import type { NextAuthConfig } from "next-auth";
 // Configuración compatible con el middleware (sin Prisma ni bcrypt). El control de acceso por rol
 // se aplica aquí, antes de que la petición llegue a cualquier página (ERS 4.6).
 
-const RUTAS_PUBLICAS = ["/entrar", "/recuperar", "/api/auth", "/api/cron"];
+const RUTAS_PUBLICAS = ["/entrar", "/recuperar", "/api/auth", "/api/cron", "/api/demo"];
 const DOCE_HORAS = 12 * 60 * 60 * 1000;
 
 export const authConfig = {

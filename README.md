@@ -81,7 +81,7 @@ En el login, “ver como colaborador / administradora” llena estos datos. Pon 
    - `CRON_SECRET` (cualquier texto largo y aleatorio)
    - `RESEND_API_KEY`, `CORREO_REMITENTE` y `CORREO_REDIRECCION` (tu correo: sin dominio verificado, Resend solo entrega a la dirección dueña de la cuenta, así que en la demo todos los correos llegan ahí y la app registra el destinatario real)
    - `APP_URL` con la URL de producción (opcional)
-4. Despliega. Luego siembra los datos una vez desde tu computador apuntando a la base de Neon: `npm run db:seed` con la `.env` de producción.
+4. Despliega. Luego carga los datos de demostración una vez abriendo en el navegador `https://TU-APP.vercel.app/api/demo/sembrar?secreto=TU_CRON_SECRET` (borra la base y la vuelve a llenar; responde en menos de un minuto). También puedes hacerlo desde tu computador con `npm run db:seed` y la `.env` de producción.
 5. Los cron jobs de `vercel.json` se activan solos en producción: el envío del horario (domingos 23:00 UTC, 18:00 en Colombia) y la actualización diaria de la simulación.
 
 Mientras la simulación está activa, la app completa cada día la demanda simulada hasta la hora actual y arma la malla de la semana si falta, para que la demo siempre tenga datos “de hoy”.
