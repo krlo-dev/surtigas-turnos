@@ -5,8 +5,9 @@ import { db } from "../db";
 import { coberturaPorHora, horarioDelDia, horasDelDia, horasTrabajadas, requeridasDelDia } from "../engine/oficinas";
 import { aFecha, aISO, DIAS_CORTOS, diaSemana, diasDeSemana, hoyISO, partes, semanaISO, sumarDias } from "../fechas";
 import { contextoSemana } from "./contexto";
+import { esPorQuitar } from "./por-quitar";
 
-export type ClaseBloque = "" | "propuesto" | "movido" | "manual" | "choque" | "liberado";
+export type ClaseBloque = "" | "propuesto" | "movido" | "manual" | "choque" | "liberado" | "quitar";
 
 export interface BloqueVista {
   id: string;
@@ -78,7 +79,10 @@ export async function vistaMalla(lunes: string, oficinaIdSel?: string) {
           const choque = delDia.find((x) => x.id !== t.id && x.estado !== "LIBERADO" && t.estado !== "LIBERADO" && x.horaInicio < t.horaFin && t.horaInicio < x.horaFin);
           let clase: ClaseBloque = "";
           let sub = `${fmtH(horasTrabajadas(t.horaInicio, t.horaFin))} h`;
-          if (t.estado === "LIBERADO") {
+          if (esPorQuitar(t)) {
+            clase = "quitar";
+            sub = "Se quita al publicar";
+          } else if (t.estado === "LIBERADO") {
             clase = "liberado";
             sub = "Liberado";
           } else if (choque) {
@@ -97,7 +101,7 @@ export async function vistaMalla(lunes: string, oficinaIdSel?: string) {
             clase = "movido";
             sub = t.nota ?? "Apoyo";
           }
-          if (t.virtual && clase !== "liberado") sub += " · virtual";
+          if (t.virtual && clase !== "liberado" && clase !== "quitar") sub += " · virtual";
           return { id: t.id, inicio: t.horaInicio, fin: t.horaFin, clase, sub, oficinaId: t.oficinaId, publicado: t.publicado };
         }),
       };

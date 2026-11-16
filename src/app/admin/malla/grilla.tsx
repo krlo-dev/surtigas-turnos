@@ -6,10 +6,10 @@ import { useState, useTransition, type ReactNode } from "react";
 import { Avatar, Cinta, NOMBRE_TIPO } from "@/components/ui";
 import { DIAS_CORTOS, diaSemana, fmtHora, fmtRangoHoras, partes } from "@/lib/fechas";
 import type { vistaMalla } from "@/lib/servicios/vista-malla";
-import { copiar, eliminarTurno, guardarTurno, publicar } from "./acciones";
+import { copiar, deshacerQuitar, eliminarTurno, guardarTurno, publicar } from "./acciones";
 
 type Vista = NonNullable<Awaited<ReturnType<typeof vistaMalla>>>;
-type Sel = { personaId: string; nombre: string; fecha: string; turnoId?: string; inicio: number; fin: number; oficinaId: string };
+type Sel = { personaId: string; nombre: string; fecha: string; turnoId?: string; inicio: number; fin: number; oficinaId: string; porQuitar?: boolean };
 
 export function GrillaMalla({ v, cabecera, abrirNuevo }: { v: Vista; cabecera: ReactNode; abrirNuevo: boolean }) {
   const router = useRouter();
@@ -98,7 +98,23 @@ export function GrillaMalla({ v, cabecera, abrirNuevo }: { v: Vista; cabecera: R
             </>
           </div>
         </div>
-        {sel && (
+        {sel?.porQuitar && (
+          <div className="editor-anclado" style={{ alignItems: "center" }}>
+            <div style={{ flex: 1 }}>
+              <div className="titulo-item">Turno por quitar</div>
+              <div className="ink2" style={{ fontSize: 12.5 }}>
+                {sel.nombre} · {etiquetaDia(sel.fecha)} · {fmtRangoHoras(sel.inicio, sel.fin)}. Se elimina y se le avisa cuando le des Publicar.
+              </div>
+            </div>
+            <button className="btn btn-secundario" disabled={pendiente} onClick={() => correr(() => deshacerQuitar(sel.turnoId!), true)}>
+              Deshacer
+            </button>
+            <button className="btn-icono sm" onClick={() => setSel(null)} aria-label="Cerrar editor">
+              <X />
+            </button>
+          </div>
+        )}
+        {sel && !sel.porQuitar && (
           <div className="editor-anclado">
             <div style={{ minWidth: 170 }}>
               <div className="titulo-item">{sel.turnoId ? "Editar turno" : "Nuevo turno"}</div>
@@ -180,6 +196,7 @@ export function GrillaMalla({ v, cabecera, abrirNuevo }: { v: Vista; cabecera: R
           <span className="item"><span className="barrita manual" /> Ajuste manual</span>
           <span className="item"><span className="barrita choque" /> Choque</span>
           <span className="item"><span className="barrita liberado" /> <s>Liberado</s></span>
+          <span className="item"><span className="barrita quitar" /> <s>Por quitar</s></span>
           {(["INCAPACIDAD", "PERMISO", "EXCUSA"] as const).map((t) => (
             <span key={t} className="item"><span className={`muestra ${t}`} /> {NOMBRE_TIPO[t]}</span>
           ))}
@@ -239,7 +256,7 @@ function Fila({ f, v, sel, abrir }: { f: Vista["filas"][number]; v: Vista; sel: 
               <button
                 key={t.id}
                 className={`bloque ${t.clase} ${sel?.turnoId === t.id ? "seleccionado" : ""}`}
-                onClick={() => t.clase !== "liberado" && abrir({ personaId: f.persona.id, nombre: f.persona.nombre, fecha, turnoId: t.id, inicio: t.inicio, fin: t.fin, oficinaId: t.oficinaId })}
+                onClick={() => t.clase !== "liberado" && abrir({ personaId: f.persona.id, nombre: f.persona.nombre, fecha, turnoId: t.id, inicio: t.inicio, fin: t.fin, oficinaId: t.oficinaId, porQuitar: t.clase === "quitar" })}
                 title={`${fmtRangoHoras(t.inicio, t.fin)} · ${t.sub}`}
               >
                 <span className="barra-estado" />

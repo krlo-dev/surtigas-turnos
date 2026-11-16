@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { sesionRequerida } from "@/auth";
 import type { ParametrosMotor } from "@/lib/engine/tipos";
 import { horaAMinutos } from "@/lib/fechas";
-import { aplicarCobertura, confirmarPropuesta, copiarSemanaAnterior, generarPropuesta, guardarTurnoManual, publicarCambios, quitarTurno } from "@/lib/servicios/malla";
+import { aplicarCobertura, confirmarPropuesta, copiarSemanaAnterior, generarPropuesta, deshacerQuitarTurno, guardarTurnoManual, publicarCambios, quitarTurno } from "@/lib/servicios/malla";
 import { db } from "@/lib/db";
 
 export type Resultado = { ok?: string; error?: string } | undefined;
@@ -23,9 +23,16 @@ export async function guardarTurno(datos: { id?: string; usuarioId: string; ofic
 
 export async function eliminarTurno(id: string): Promise<Resultado> {
   await sesionRequerida("ADMIN");
-  await quitarTurno(id);
+  const pendiente = await quitarTurno(id);
   revalidatePath("/admin/malla");
-  return { ok: "Turno quitado." };
+  return { ok: pendiente ? "Turno marcado para quitar. Se elimina cuando le des Publicar." : "Turno quitado." };
+}
+
+export async function deshacerQuitar(id: string): Promise<Resultado> {
+  await sesionRequerida("ADMIN");
+  await deshacerQuitarTurno(id);
+  revalidatePath("/admin/malla");
+  return { ok: "Listo, el turno se queda." };
 }
 
 export async function publicar(lunes: string, oficinaId: string) {

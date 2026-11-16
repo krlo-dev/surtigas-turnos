@@ -3,6 +3,7 @@
 
 import type { Prisma } from "@prisma/client";
 import { db } from "../db";
+import { MARCA_QUITAR, esPorQuitar } from "./por-quitar";
 import { obtenerMotor } from "../engine";
 import type { CoberturaPropuesta, ParametrosMotor, ResultadoPropuesta, SugerenciaApoyo } from "../engine/tipos";
 import { aFecha, aISO, diasDeSemana, hoyISO, lunesDe, minutosAhora, semanaISO, sumarDias } from "../fechas";
@@ -81,13 +82,33 @@ export async function guardarTurnoManual(d: { id?: string; usuarioId: string; of
   return d.id ? db.turno.update({ where: { id: d.id }, data }) : db.turno.create({ data });
 }
 
-export async function quitarTurno(id: string) {
-  await db.turno.delete({ where: { id } });
+
+/** Devuelve true si el turno quedó pendiente de publicar y false si se borró de una vez (nunca se había publicado). */
+export async function quitarTurno(id: string): Promise<boolean> {
+  const t = await db.turno.findUniqueOrThrow({ where: { id } });
+  if (!t.publicado) {
+    await db.turno.delete({ where: { id } });
+    return false;
+  }
+  await db.turno.update({ where: { id }, data: { estado: "LIBERADO", publicado: false, nota: `${MARCA_QUITAR}${t.estado}|${t.nota ?? ""}` } });
+  return true;
+}
+
+/** Deshace un "quitar turno" que todavía no se ha publicado. */
+export async function deshacerQuitarTurno(id: string) {
+  const t = await db.turno.findUniqueOrThrow({ where: { id } });
+  if (!esPorQuitar(t)) return;
+  const [estado, ...resto] = (t.nota ?? "").slice(MARCA_QUITAR.length).split("|");
+  const nota = resto.join("|");
+  const valido = ["CONFIRMADO", "PROPUESTO", "MANUAL"].includes(estado) ? (estado as "CONFIRMADO" | "PROPUESTO" | "MANUAL") : "MANUAL";
+  await db.turno.update({ where: { id }, data: { estado: valido, publicado: true, nota: nota || null } });
 }
 
 export async function publicarCambios(lunes: string, oficinaId?: string) {
   const where = { fecha: { gte: aFecha(lunes), lte: aFecha(sumarDias(lunes, 6)) }, publicado: false, ...(oficinaId ? { oficinaId } : {}) };
-  const pendientes = await db.turno.findMany({ where, select: { usuarioId: true } });
+  const pendientes = await db.turno.findMany({ where, select: { id: true, usuarioId: true, estado: true, publicado: true, nota: true } });
+  const porQuitar = pendientes.filter(esPorQuitar).map((t) => t.id);
+  if (porQuitar.length) await db.turno.deleteMany({ where: { id: { in: porQuitar } } });
   await db.turno.updateMany({ where, data: { publicado: true } });
   const personas = [...new Set(pendientes.map((p) => p.usuarioId))];
   for (const id of personas) await enviarHorarioA(id, lunes);
