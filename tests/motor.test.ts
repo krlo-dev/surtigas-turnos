@@ -116,6 +116,11 @@ describe("Importador de Digiturno", () => {
     const aband = r.demanda.find((d) => d.codigoOficina === 10 && d.fila === "GENERAL")!;
     expect(aband.abandonados).toBe(1);
     expect(r.demanda.find((d) => d.fila === "PREFERENCIAL")!.servicio).toBe("Radicación de cartas");
-    expect(JSON.stringify(r)).not.toMatch(/Operador Ficticio|operador1/);
+    // los nombres de operadores solo viajan en la lista opcional para crear el equipo
+    expect(r.operadores.map((o) => o.nombre)).toEqual(["Operador Ficticio 1", "Operador Ficticio 2", "Operador Ficticio 3"]);
+    expect(r.operadores.find((o) => o.id === "operador2")!.codigoOficina).toBe(10);
+    const { operadores: _ops, ...agregados } = r;
+    void _ops;
+    expect(JSON.stringify(agregados)).not.toMatch(/Operador Ficticio|operador1/);
   });
 });

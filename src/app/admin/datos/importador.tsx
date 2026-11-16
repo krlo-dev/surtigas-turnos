@@ -29,6 +29,8 @@ export function Importador({ oficinas }: { oficinas: Oficina[] }) {
   const [resumen, setResumen] = useState<ResumenDigiturno | null>(null);
   const [mapeo, setMapeo] = useState<Mapeo[]>([]);
   const [reemplazar, setReemplazar] = useState(true);
+  const [crearEquipo, setCrearEquipo] = useState(true);
+  const [creados, setCreados] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const leer = async (archivo: File) => {
@@ -89,6 +91,7 @@ export function Importador({ oficinas }: { oficinas: Oficina[] }) {
   const enviar = async (cuerpo: object) => {
     const r = await fetch("/api/importar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `Error ${r.status}`);
+    return r.json();
   };
 
   const importar = async () => {
@@ -103,6 +106,14 @@ export function Importador({ oficinas }: { oficinas: Oficina[] }) {
         await enviar({ paso: "lote", demanda: resumen.demanda.slice(i, i + L), operacion: resumen.operacion.slice(i, i + L) });
         setProgreso(Math.round(((i + L) / total) * 100));
       }
+      if (crearEquipo && resumen.operadores.length) {
+        let n = 0;
+        for (let i = 0; i < resumen.operadores.length; i += 100) {
+          const r = await enviar({ paso: "equipo", operadores: resumen.operadores.slice(i, i + 100) });
+          n += r.creados ?? 0;
+        }
+        setCreados(n);
+      } else setCreados(null);
       await enviar({ paso: "fin", archivo: archivoRef.current?.name ?? "digiturno.csv", registros: resumen.registros, desde: resumen.desde, hasta: resumen.hasta, oficinas: resumen.oficinas.length });
       setEstado("listo");
       router.refresh();
@@ -118,7 +129,9 @@ export function Importador({ oficinas }: { oficinas: Oficina[] }) {
         <label className="zona-subida" style={{ padding: 22 }}>
           <span className="icono-circulo azul"><FileUp /></span>
           <span style={{ flex: 1 }}>
-            <b style={{ color: "var(--ink)", fontWeight: 600, display: "block" }}>{estado === "listo" ? "Importación terminada. ¿Otro archivo?" : "Elige el export de turnos de Digiturno"}</b>
+            <b style={{ color: "var(--ink)", fontWeight: 600, display: "block" }}>
+              {estado === "listo" ? `Importación terminada${creados ? `, con ${creados} ${creados === 1 ? "persona nueva" : "personas nuevas"} en Equipo` : ""}. ¿Otro archivo?` : "Elige el export de turnos de Digiturno"}
+            </b>
             CSV separado por punto y coma o tabulador, con las columnas IdOficina, NombreOficina, Estado, TiempoInicioEspera, TiempoEspera, TiempoAtencion…
           </span>
           <input type="file" accept=".csv,.txt,.tsv" hidden onChange={(e) => e.target.files?.[0] && leer(e.target.files[0])} />
@@ -136,7 +149,7 @@ export function Importador({ oficinas }: { oficinas: Oficina[] }) {
           <div className="aviso ok" style={{ marginBottom: 18 }}>
             <span>
               <b>{resumen.registros.toLocaleString("es-CO")} turnos</b> del {resumen.desde} al {resumen.hasta} en {resumen.oficinas.length} oficinas
-              {resumen.descartados ? ` · ${resumen.descartados} registros sin fecha u oficina se omitieron` : ""}. Servicios: {resumen.servicios.join(", ")}. Solo se guardarán conteos por hora; los nombres, cédulas y teléfonos del archivo no salen de tu equipo.
+              {resumen.descartados ? ` · ${resumen.descartados} registros sin fecha u oficina se omitieron` : ""}. Servicios: {resumen.servicios.join(", ")}. Se guardan conteos por hora; las cédulas, teléfonos y datos de clientes no salen de tu equipo.
             </span>
           </div>
           <h3 className="titulo-item" style={{ marginBottom: 8 }}>¿A qué oficina corresponde cada sede de Digiturno?</h3>
@@ -168,6 +181,15 @@ export function Importador({ oficinas }: { oficinas: Oficina[] }) {
           <label className="check" style={{ marginTop: 16 }}>
             <input type="checkbox" checked={reemplazar} onChange={(e) => setReemplazar(e.target.checked)} /> Reemplazar el histórico simulado y apagar la simulación diaria
           </label>
+          {resumen.operadores.length > 0 && (
+            <label className="check" style={{ marginTop: 10, alignItems: "flex-start" }}>
+              <input type="checkbox" checked={crearEquipo} onChange={(e) => setCrearEquipo(e.target.checked)} style={{ marginTop: 3 }} />
+              <span>
+                Crear el equipo con los {resumen.operadores.length} operadores del archivo. Solo se guarda el nombre y la oficina donde más atendió; los que ya
+                existan en Equipo se omiten.
+              </span>
+            </label>
+          )}
           <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
             <button className="btn btn-quieto" onClick={() => setEstado("inicio")}>Cancelar</button>
             <button className="btn btn-primario" onClick={importar}><Upload /> Importar histórico</button>

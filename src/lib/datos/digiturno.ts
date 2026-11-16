@@ -1,6 +1,7 @@
 // Lector del export de turnos de Digiturno (CSV separado por ; o tabulador).
 // Agrega los registros por oficina, día, hora, fila y servicio. Los datos personales del export
-// (operadores, clientes, cédulas, teléfonos, correos) se leen solo para contar y nunca se guardan.
+// (clientes, cédulas, teléfonos, correos) se leen solo para contar y nunca se guardan. De los operadores
+// solo se conserva el nombre y su oficina principal, y únicamente si el administrador elige crear el equipo.
 
 export interface OficinaDetectada {
   codigo: number;
@@ -35,6 +36,13 @@ export interface AgregadoOperacion {
   terminales: number;
 }
 
+export interface OperadorDetectado {
+  id: string;
+  nombre: string;
+  codigoOficina: number; // oficina donde atendió más turnos
+  turnos: number;
+}
+
 export interface ResumenDigiturno {
   oficinas: OficinaDetectada[];
   demanda: AgregadoDemanda[];
@@ -44,6 +52,7 @@ export interface ResumenDigiturno {
   registros: number;
   descartados: number;
   servicios: string[];
+  operadores: OperadorDetectado[];
 }
 
 const COLUMNAS_REQUERIDAS = ["IdOficina", "NombreOficina", "Estado", "TiempoInicioEspera", "TiempoEspera", "TiempoAtencion"];
@@ -77,6 +86,17 @@ export function normalizarServicio(s: string | undefined): string {
   return limpio.charAt(0).toUpperCase() + limpio.slice(1).toLowerCase();
 }
 
+/** "JUAN PÉREZ" → "Juan Pérez" (los exports suelen traer los nombres en mayúsculas). */
+export function nombrePropio(s: string): string {
+  const limpio = s.replace(/\s+/g, " ").trim();
+  if (limpio !== limpio.toUpperCase()) return limpio;
+  return limpio
+    .toLowerCase()
+    .split(" ")
+    .map((p) => (["de", "del", "la", "las", "los", "y"].includes(p) ? p : p.charAt(0).toUpperCase() + p.slice(1)))
+    .join(" ");
+}
+
 export function nombreOficinaLimpio(s: string): string {
   return s.replace(/^oficina\s+surtigas\s*-\s*/i, "").replace(/^sede\s+/i, "").trim() || s;
 }
@@ -94,6 +114,7 @@ export class AgregadorDigiturno {
   private operacion = new Map<string, { operadores: Set<string>; terminales: Set<string> }>();
   private oficinas = new Map<number, OficinaDetectada & { _term: Set<string> }>();
   private servicios = new Set<string>();
+  private operadores = new Map<string, { nombre: string; porOficina: Map<number, number> }>();
   registros = 0;
   descartados = 0;
   private desde: string | null = null;
@@ -163,7 +184,14 @@ export class AgregadorDigiturno {
     const o = this.operacion.get(op) ?? { operadores: new Set<string>(), terminales: new Set<string>() };
     const operador = this.v(celdas, "IdUsuario")?.trim();
     const terminal = this.v(celdas, "NombreTerminal")?.trim();
-    if (operador && atendido) o.operadores.add(operador);
+    if (operador && atendido) {
+      o.operadores.add(operador);
+      const nombreOp = (this.v(celdas, "NombreOperador") ?? "").trim();
+      const reg = this.operadores.get(operador) ?? { nombre: nombreOp || operador, porOficina: new Map<number, number>() };
+      if (!reg.nombre && nombreOp) reg.nombre = nombreOp;
+      reg.porOficina.set(codigo, (reg.porOficina.get(codigo) ?? 0) + 1);
+      this.operadores.set(operador, reg);
+    }
     if (terminal && atendido) o.terminales.add(terminal);
     this.operacion.set(op, o);
 
@@ -201,6 +229,14 @@ export class AgregadorDigiturno {
       registros: this.registros,
       descartados: this.descartados,
       servicios: [...this.servicios].sort(),
+      operadores: [...this.operadores.entries()]
+        .filter(([id]) => !/^\*?sin asignar$/i.test(id))
+        .map(([id, r]) => {
+          const [codigoOficina, turnos] = [...r.porOficina.entries()].sort((a, b) => b[1] - a[1])[0];
+          const total = [...r.porOficina.values()].reduce((a, b) => a + b, 0);
+          return { id, nombre: nombrePropio(r.nombre), codigoOficina, turnos: total || turnos };
+        })
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
     };
   }
 }

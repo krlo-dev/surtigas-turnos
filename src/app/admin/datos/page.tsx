@@ -39,7 +39,7 @@ export default async function PaginaDatos() {
         <h2 className="titulo-seccion" style={{ marginBottom: 12 }}>Importar el export de Digiturno</h2>
         <Importador oficinas={oficinas} />
         <p className="ink2" style={{ display: "flex", gap: 8, marginTop: 14, fontSize: 12.5 }}>
-          <ShieldCheck size={16} style={{ flex: "none" }} /> El archivo se procesa en tu navegador. A la base de datos solo llegan totales por oficina, día, hora, fila y servicio; nunca nombres de operadores ni datos de clientes.
+          <ShieldCheck size={16} style={{ flex: "none" }} /> El archivo se procesa en tu navegador. A la base de datos llegan totales por oficina, día, hora, fila y servicio y, si lo eliges, el nombre de cada operador con su oficina. Nunca cédulas, teléfonos ni datos de clientes.
         </p>
       </section>
 

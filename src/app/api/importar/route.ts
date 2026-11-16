@@ -1,8 +1,12 @@
+import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
+import { correoDe } from "@/lib/datos/catalogo";
 import { aFecha } from "@/lib/fechas";
+
+export const maxDuration = 60;
 
 // Recibe el histórico de Digiturno ya agregado en el navegador (sin datos personales), por lotes.
 
@@ -18,6 +22,10 @@ const lote = z.object({
   paso: z.literal("lote"),
   demanda: z.array(z.object({ codigoOficina: z.number().int(), fecha, hora: z.number().int().min(0).max(23), fila: z.enum(["GENERAL", "PREFERENCIAL"]), servicio: z.string().max(80), llegadas: z.number().int(), atendidos: z.number().int(), abandonados: z.number().int(), cancelados: z.number().int(), sumaEsperaSeg: z.number().int(), sumaAtencionSeg: z.number().int(), atencionesConTiempo: z.number().int(), enObjetivo: z.number().int() })).max(5000),
   operacion: z.array(z.object({ codigoOficina: z.number().int(), fecha, hora: z.number().int(), operadores: z.number().int(), terminales: z.number().int() })).max(5000),
+});
+const equipo = z.object({
+  paso: z.literal("equipo"),
+  operadores: z.array(z.object({ id: z.string().max(120), nombre: z.string().min(1).max(120), codigoOficina: z.number().int(), turnos: z.number().int() })).max(2000),
 });
 const fin = z.object({ paso: z.literal("fin"), archivo: z.string().max(200), registros: z.number().int(), desde: fecha, hasta: fecha, oficinas: z.number().int() });
 
@@ -73,5 +81,36 @@ export async function POST(req: Request) {
     await db.importacion.create({ data: { archivo: d.archivo, filas: d.registros, desde: aFecha(d.desde), hasta: aFecha(d.hasta), oficinas: d.oficinas, autorId: s.user.id } });
     return NextResponse.json({ ok: true });
   }
+  if (cuerpo.paso === "equipo") {
+    // Crea como colaboradores a los operadores del archivo (solo nombre y oficina principal).
+    const d = equipo.parse(cuerpo);
+    const llano = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    const [oficinas, existentes] = await Promise.all([
+      db.oficina.findMany({ where: { codigoDigiturno: { not: null } }, select: { id: true, codigoDigiturno: true } }),
+      db.usuario.findMany({ select: { nombre: true, correo: true } }),
+    ]);
+    const idOficina = new Map(oficinas.map((o) => [o.codigoDigiturno!, o.id]));
+    const nombres = new Set(existentes.map((u) => llano(u.nombre)));
+    const correos = new Set(existentes.map((u) => u.correo));
+    // Contraseña inicial igual a la de la demo; cada persona puede cambiarla con "¿Olvidaste tu contraseña?"
+    const hash = await bcrypt.hash(process.env.SEED_PASSWORD || "Surtigas2026", 10);
+    let creados = 0;
+    let repetidos = 0;
+    for (const op of d.operadores) {
+      const oficinaId = idOficina.get(op.codigoOficina);
+      if (!oficinaId || nombres.has(llano(op.nombre))) {
+        repetidos++;
+        continue;
+      }
+      let correo = correoDe(op.nombre);
+      for (let n = 2; correos.has(correo); n++) correo = correoDe(op.nombre).replace("@", `${n}@`);
+      await db.usuario.create({ data: { nombre: op.nombre, correo, passwordHash: hash, rol: "COLABORADOR", oficinaId, horasSemana: 42 } });
+      nombres.add(llano(op.nombre));
+      correos.add(correo);
+      creados++;
+    }
+    return NextResponse.json({ ok: true, creados, repetidos });
+  }
+
   return NextResponse.json({ error: "Paso desconocido" }, { status: 400 });
 }
